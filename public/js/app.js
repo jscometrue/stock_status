@@ -127,7 +127,8 @@ function initButtons() {
   document.getElementById('btnUpdate').addEventListener('click', () => {
     loadTableData(true);
   });
-  document.getElementById('btnLoadEvents').addEventListener('click', loadEvents);
+  document.getElementById('btnLoadEvents').addEventListener('click', () => loadEvents(false));
+  document.getElementById('btnUpdateEvents').addEventListener('click', () => loadEvents(true));
   document.getElementById('btnViewData').addEventListener('click', showDataViewer);
   document.getElementById('btnDownloadData').addEventListener('click', downloadTableAsExcel);
   document.getElementById('dataViewerClose').addEventListener('click', hideDataViewer);
@@ -475,15 +476,23 @@ function renderChartsFromData(json, { force = false } = {}) {
   });
 }
 
-async function loadEvents() {
+async function loadEvents(forceRefresh = false) {
   const year = parseInt(document.getElementById('eventsYearSelect').value);
   const month = parseInt(document.getElementById('eventsMonthSelect').value);
   const tbody = document.getElementById('eventsBody');
+  const btnLoad = document.getElementById('btnLoadEvents');
+  const btnUpdate = document.getElementById('btnUpdateEvents');
   const key = makePeriodKey(year, month);
   const cached = eventsCache.get(key);
   const alreadyShowing = lastRenderedEventsKey === key && tbody.children.length > 0;
 
-  if (!alreadyShowing) {
+  btnLoad.disabled = true;
+  btnUpdate.disabled = true;
+
+  if (forceRefresh) {
+    eventsCache.delete(key);
+    tbody.innerHTML = '<tr><td colspan="6" class="loading">업데이트 중...</td></tr>';
+  } else if (!alreadyShowing) {
     if (cached) {
       renderEvents(cached);
     } else {
@@ -495,7 +504,8 @@ async function loadEvents() {
   eventsRequestToken = token;
 
   try {
-    const res = await fetch(`${API}/events/${year}/${month}`);
+    const url = forceRefresh ? `${API}/events/${year}/${month}?refresh=1` : `${API}/events/${year}/${month}`;
+    const res = await fetch(url);
     let json;
     try {
       json = await res.json();
@@ -522,6 +532,9 @@ async function loadEvents() {
     if (!cached && !alreadyShowing) {
       tbody.innerHTML = '<tr><td colspan="6" class="empty">데이터를 불러올 수 없습니다.</td></tr>';
     }
+  } finally {
+    btnLoad.disabled = false;
+    btnUpdate.disabled = false;
   }
 }
 

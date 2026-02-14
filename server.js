@@ -401,10 +401,11 @@ app.get('/api/update/:year/:month', async (req, res) => {
 const newsCache = new Map();
 const NEWS_CACHE_TTL = 30 * 60 * 1000; // 30분
 
-async function fetchNewsForSymbol(symbol, fromDate, toDate) {
+async function fetchNewsForSymbol(symbol, fromDate, toDate, opts = {}) {
+  const { skipCache = false } = opts;
   const key = `${symbol}:${fromDate}:${toDate}`;
   const cached = newsCache.get(key);
-  if (cached && cached.expires > Date.now()) return cached.data;
+  if (!skipCache && cached && cached.expires > Date.now()) return cached.data;
 
   const apiKey = process.env.FINNHUB_API_KEY;
   if (!apiKey) return [];
@@ -492,14 +493,15 @@ function getSellTimingWarning(data, evtDate, changePct, type) {
   return '-';
 }
 
-// API: 이벤트/뉴스 - 상승/하락 이유를 설명한 뉴스가 있는 경우만 포함 (캐시 사용)
+// API: 이벤트/뉴스 - 상승/하락 이유를 설명한 뉴스가 있는 경우만 포함 (캐시 사용, ?refresh=1 시 최신 반영)
 app.get('/api/events/:year/:month', async (req, res) => {
   try {
     const vm = validateYearMonth(req.params.year, req.params.month);
     if (!vm) {
       return apiError(res, 400, '잘못된 날짜 범위', '년(2000~2100), 월(1~12)을 확인하세요');
     }
-    const { data: raw, failed } = await getMonthlyData(vm.year, vm.month);
+    const forceRefresh = req.query.refresh === '1';
+    const { data: raw, failed } = await getMonthlyData(vm.year, vm.month, { forceRefresh });
     const { start, end } = getMonthRange(vm.year, vm.month);
     const monthStart = formatYMD(start);
     const monthEnd = formatYMD(end);
@@ -533,7 +535,7 @@ app.get('/api/events/:year/:month', async (req, res) => {
 
     const newsBySymbol = {};
     for (const sym of symbolsToFetch) {
-      newsBySymbol[sym] = await fetchNewsForSymbol(sym, monthStart, monthEnd);
+      newsBySymbol[sym] = await fetchNewsForSymbol(sym, monthStart, monthEnd, { skipCache: forceRefresh });
       await delay(200);
     }
 
