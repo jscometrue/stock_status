@@ -410,9 +410,11 @@ async function fetchNewsForSymbol(symbol, fromDate, toDate, opts = {}) {
   const apiKey = process.env.FINNHUB_API_KEY;
   if (!apiKey) return [];
 
-  const from = fromDate;
-  const to = toDate;
-  const url = `https://finnhub.io/api/v1/company-news?symbol=${encodeURIComponent(symbol)}&from=${from}&to=${to}&token=${apiKey}`;
+  const today = formatYMD(new Date());
+  const toDateCapped = toDate > today ? today : toDate;
+  const fromTs = Math.floor(new Date(fromDate + 'T00:00:00Z').getTime() / 1000);
+  const toTs = Math.floor(new Date(toDateCapped + 'T23:59:59Z').getTime() / 1000);
+  const url = `https://finnhub.io/api/v1/company-news?symbol=${encodeURIComponent(symbol)}&from=${fromTs}&to=${toTs}&token=${apiKey}`;
 
   try {
     const body = await new Promise((resolve, reject) => {
@@ -422,9 +424,12 @@ async function fetchNewsForSymbol(symbol, fromDate, toDate, opts = {}) {
         res.on('end', () => resolve(data));
       }).on('error', reject);
     });
-    const arr = JSON.parse(body || '[]');
-    if (!Array.isArray(arr)) return [];
-    const result = arr.map(n => ({
+    const parsed = JSON.parse(body || '[]');
+    if (!Array.isArray(parsed)) {
+      if (parsed && parsed.error) console.warn(`[Finnhub ${symbol}]`, parsed.error);
+      return [];
+    }
+    const result = parsed.map(n => ({
       date: n.datetime ? new Date(n.datetime * 1000).toISOString().slice(0, 10) : null,
       headline: (n.headline || '').substring(0, 500)
     })).filter(n => n.date);
@@ -445,7 +450,7 @@ function isAdjacentDate(d1, d2) {
   const a = new Date(d1).getTime();
   const b = new Date(d2).getTime();
   const diff = Math.abs(a - b) / (24 * 60 * 60 * 1000);
-  return diff <= 1;
+  return diff <= 2;
 }
 
 // 과거 추이·향후 시장 분석 기반 매도 시점 경고 메시지 생성
@@ -545,19 +550,17 @@ app.get('/api/events/:year/:month', async (req, res) => {
       if (!newsSym) continue;
       const newsList = newsBySymbol[newsSym] || [];
       const newsItem = findNewsForDate(newsList, ev.date);
-      if (newsItem) {
-        const itemData = raw[ev.itemObj.id] || [];
-        const sellWarning = getSellTimingWarning(itemData, ev.date, ev.change, ev.type);
-        events.push({
-          date: ev.date,
-          item: ev.item,
-          change: ev.change,
-          type: ev.type,
-          description: ev.description,
-          newsHeadline: newsItem.headline || null,
-          sellWarning
-        });
-      }
+      const itemData = raw[ev.itemObj.id] || [];
+      const sellWarning = getSellTimingWarning(itemData, ev.date, ev.change, ev.type);
+      events.push({
+        date: ev.date,
+        item: ev.item,
+        change: ev.change,
+        type: ev.type,
+        description: ev.description,
+        newsHeadline: newsItem ? (newsItem.headline || null) : null,
+        sellWarning
+      });
     }
 
     const byDate = {};
@@ -572,7 +575,7 @@ app.get('/api/events/:year/:month', async (req, res) => {
       month: vm.month,
       events: byDate,
       failed: failed.length > 0 ? failed : undefined,
-      newsFilterApplied: true
+      newsFilterApplied: false
     });
   } catch (err) {
     console.error('events API:', err);

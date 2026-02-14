@@ -15,9 +15,9 @@ module.exports = {
     { id: 'sap', name: 'SAP', symbol: 'SAP', unit: 'EUR', newsSymbol: 'SAP' },
     { id: 'nvidia', name: '앤비디아', symbol: 'NVDA', unit: 'USD', newsSymbol: 'NVDA' },
     { id: 'gaonchips', name: '가온칩스', symbol: '399720.KQ', unit: '원', newsSymbol: null },
-    { id: 'tiger_sp500_h', name: 'TIGER S&P 500(H) ETF', symbol: '448290.KS', unit: '원', newsSymbol: null },
-    { id: 'tiger_sp500', name: 'TIGER S&P 500 ETF', symbol: '360750.KS', unit: '원', newsSymbol: null },
-    { id: 'tiger_sox', name: 'Tiger 필라델피아 지수', symbol: '381180.KS', unit: '원', newsSymbol: null },
+    { id: 'tiger_sp500_h', name: 'TIGER S&P 500(H) ETF', symbol: '448290.KS', unit: '원', newsSymbol: 'SPY' },
+    { id: 'tiger_sp500', name: 'TIGER S&P 500 ETF', symbol: '360750.KS', unit: '원', newsSymbol: 'SPY' },
+    { id: 'tiger_sox', name: 'Tiger 필라델피아 지수', symbol: '381180.KS', unit: '원', newsSymbol: 'SOXX' },
     { id: 'krx_gold', name: 'KRX금현물가격', symbol: '319640.KS', unit: '원', newsSymbol: null },
     { id: 'alphabet', name: '알파벳A 가격', symbol: 'GOOGL', unit: 'USD', newsSymbol: 'GOOGL' },
   ]
