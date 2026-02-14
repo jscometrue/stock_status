@@ -446,6 +446,8 @@ function findNewsForDate(newsList, eventDate) {
   return newsList.find(n => n.date === eventDate || isAdjacentDate(n.date, eventDate)) || null;
 }
 
+const US_MARKET_NEWS_SYMBOLS = ['AAPL', 'NVDA', 'SPY', 'MSFT'];
+
 async function fetchMarketNews(fromDate, toDate, opts = {}) {
   const { skipCache = false } = opts;
   const key = `market:${fromDate}:${toDate}`;
@@ -459,31 +461,70 @@ async function fetchMarketNews(fromDate, toDate, opts = {}) {
   const toDateCapped = toDate > today ? today : toDate;
   const fromTs = Math.floor(new Date(fromDate + 'T00:00:00Z').getTime() / 1000);
   const toTs = Math.floor(new Date(toDateCapped + 'T23:59:59Z').getTime() / 1000);
-  const url = `https://finnhub.io/api/v1/company-news?symbol=SPY&from=${fromTs}&to=${toTs}&token=${apiKey}`;
 
-  try {
-    const body = await new Promise((resolve, reject) => {
-      https.get(url, (res) => {
-        let data = '';
-        res.on('data', c => data += c);
-        res.on('end', () => resolve(data));
-      }).on('error', reject);
-    });
-    const parsed = JSON.parse(body || '[]');
-    if (!Array.isArray(parsed)) {
-      if (parsed && parsed.error) console.warn('[Finnhub Market]', parsed.error);
-      return [];
+  const allNews = [];
+  for (const symbol of US_MARKET_NEWS_SYMBOLS) {
+    try {
+      const url = `https://finnhub.io/api/v1/company-news?symbol=${encodeURIComponent(symbol)}&from=${fromTs}&to=${toTs}&token=${apiKey}`;
+      const body = await new Promise((resolve, reject) => {
+        https.get(url, (res) => {
+          let data = '';
+          res.on('data', c => data += c);
+          res.on('end', () => resolve(data));
+        }).on('error', reject);
+      });
+      const parsed = JSON.parse(body || '[]');
+      if (!Array.isArray(parsed)) {
+        if (parsed && parsed.error) console.warn(`[Finnhub ${symbol}]`, parsed.error);
+        continue;
+      }
+      for (const n of parsed) {
+        if (!n.datetime || !n.headline) continue;
+        const dt = new Date(n.datetime * 1000);
+        const dateStr = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+        allNews.push({ date: dateStr, headline: (n.headline || '').substring(0, 500) });
+      }
+      await delay(150);
+    } catch (err) {
+      console.warn(`[미국시장 뉴스 ${symbol}]`, err.message);
     }
-    const result = parsed.map(n => ({
-      date: n.datetime ? new Date(n.datetime * 1000).toISOString().slice(0, 10) : null,
-      headline: (n.headline || '').substring(0, 500)
-    })).filter(n => n.date);
-    newsCache.set(key, { data: result, expires: Date.now() + NEWS_CACHE_TTL });
-    return result;
-  } catch (err) {
-    console.warn('[미국시장 뉴스]', err.message);
-    return [];
   }
+
+  if (allNews.length === 0) {
+    try {
+      const url = `https://finnhub.io/api/v1/market-news?category=general&token=${apiKey}`;
+      const body = await new Promise((resolve, reject) => {
+        https.get(url, (res) => {
+          let data = '';
+          res.on('data', c => data += c);
+          res.on('end', () => resolve(data));
+        }).on('error', reject);
+      });
+      const parsed = JSON.parse(body || '[]');
+      if (Array.isArray(parsed)) {
+        for (const n of parsed) {
+          if (!n.datetime || !n.headline) continue;
+          const dt = new Date(n.datetime * 1000);
+          const dateStr = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+          if (dateStr >= fromDate && dateStr <= toDateCapped) {
+            allNews.push({ date: dateStr, headline: (n.headline || '').substring(0, 500) });
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[Finnhub market-news]', err.message);
+    }
+  }
+
+  const seen = new Set();
+  const result = allNews.filter(n => {
+    const k = `${n.date}:${n.headline}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  newsCache.set(key, { data: result, expires: Date.now() + NEWS_CACHE_TTL });
+  return result;
 }
 
 function buildMarketNewsByDate(marketNewsList) {
@@ -499,10 +540,17 @@ function buildMarketNewsByDate(marketNewsList) {
 function getMarketHeadlineForDate(marketByDate, eventDate) {
   const exact = marketByDate.get(eventDate);
   if (exact && exact.length > 0) return exact[0];
+  let best = null;
+  let bestDiff = Infinity;
   for (const [d, headlines] of marketByDate) {
-    if (headlines.length > 0 && isAdjacentDate(d, eventDate)) return headlines[0];
+    if (headlines.length === 0) continue;
+    const diff = Math.abs(new Date(d).getTime() - new Date(eventDate).getTime()) / (24 * 60 * 60 * 1000);
+    if (diff <= 3 && diff < bestDiff) {
+      best = headlines[0];
+      bestDiff = diff;
+    }
   }
-  return null;
+  return best;
 }
 
 function isAdjacentDate(d1, d2) {
