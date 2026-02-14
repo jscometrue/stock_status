@@ -461,6 +461,15 @@ function renderChartsFromData(json, { force = false } = {}) {
   });
 }
 
+function setEventsTableHeader(hasNews = true) {
+  const thead = document.getElementById('eventsTableHead');
+  if (hasNews) {
+    thead.innerHTML = '<th>날짜</th><th>항목</th><th>변동</th><th>관련 뉴스</th><th>매도 시점 경고</th>';
+  } else {
+    thead.innerHTML = '<th>날짜</th><th>항목</th><th>변동</th><th>매도 시점 경고</th>';
+  }
+}
+
 async function loadEvents(forceRefresh = false) {
   const year = currentYear;
   const month = currentMonth;
@@ -471,11 +480,13 @@ async function loadEvents(forceRefresh = false) {
 
   if (forceRefresh) {
     eventsCache.delete(key);
+    setEventsTableHeader(true);
     tbody.innerHTML = '<tr><td colspan="5" class="loading">업데이트 중...</td></tr>';
   } else if (!alreadyShowing) {
     if (cached) {
       renderEvents(cached);
     } else {
+      setEventsTableHeader(true);
       tbody.innerHTML = '<tr><td colspan="5" class="loading">로딩 중...</td></tr>';
     }
   }
@@ -495,6 +506,7 @@ async function loadEvents(forceRefresh = false) {
     if (!res.ok || json.success === false) {
       showErrorPopup('이벤트 조회 실패', json?.error || '알 수 없는 오류', json?.cause);
       if (!cached && !alreadyShowing) {
+        setEventsTableHeader(true);
         tbody.innerHTML = '<tr><td colspan="5" class="empty">데이터를 불러올 수 없습니다.</td></tr>';
       }
       return;
@@ -510,6 +522,7 @@ async function loadEvents(forceRefresh = false) {
   } catch (e) {
     showErrorPopup('이벤트 조회 오류', e.message, e.message.includes('fetch') ? '서버 연결을 확인하세요.' : null);
     if (!cached && !alreadyShowing) {
+      setEventsTableHeader(true);
       tbody.innerHTML = '<tr><td colspan="5" class="empty">데이터를 불러올 수 없습니다.</td></tr>';
     }
   }
@@ -524,21 +537,40 @@ function renderEvents(json, { force = false } = {}) {
   const dates = Object.keys(events).sort();
 
   if (dates.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" class="empty">해당 월에 가격 변동 3% 이상인 이벤트가 없습니다.</td></tr>';
+    setEventsTableHeader(false);
+    tbody.innerHTML = '<tr><td colspan="4" class="empty">해당 월에 가격 변동 3% 이상인 이벤트가 없습니다.</td></tr>';
     return;
   }
 
-  tbody.innerHTML = dates.flatMap(date =>
-    events[date].map(ev => `
-      <tr>
-        <td>${escapeHtml(date)}</td>
-        <td>${escapeHtml(ev.item)}</td>
-        <td class="${ev.type === '상승' ? 'event-up' : 'event-down'}">${ev.type} ${ev.change >= 0 ? '+' : ''}${ev.change.toFixed(2)}%</td>
-        <td class="event-news">${(ev.newsHeadline && String(ev.newsHeadline).trim()) ? escapeHtml(String(ev.newsHeadline).trim()) : '(뉴스 없음)'}</td>
-        <td class="event-warning">${escapeHtml(ev.sellWarning || '-')}</td>
-      </tr>
-    `)
-  ).join('');
+  const allEvents = dates.flatMap(d => events[d]);
+  const hasAnyNews = allEvents.some(ev => ev.newsHeadline && String(ev.newsHeadline).trim());
+
+  if (hasAnyNews) {
+    setEventsTableHeader(true);
+    tbody.innerHTML = dates.flatMap(date =>
+      events[date].map(ev => `
+        <tr>
+          <td>${escapeHtml(date)}</td>
+          <td>${escapeHtml(ev.item)}</td>
+          <td class="${ev.type === '상승' ? 'event-up' : 'event-down'}">${ev.type} ${ev.change >= 0 ? '+' : ''}${ev.change.toFixed(2)}%</td>
+          <td class="event-news">${escapeHtml((ev.newsHeadline && String(ev.newsHeadline).trim()) || '')}</td>
+          <td class="event-warning">${escapeHtml(ev.sellWarning || '-')}</td>
+        </tr>
+      `)
+    ).join('');
+  } else {
+    setEventsTableHeader(false);
+    tbody.innerHTML = dates.flatMap(date =>
+      events[date].map(ev => `
+        <tr>
+          <td>${escapeHtml(date)}</td>
+          <td>${escapeHtml(ev.item)}</td>
+          <td class="${ev.type === '상승' ? 'event-up' : 'event-down'}">${ev.type} ${ev.change >= 0 ? '+' : ''}${ev.change.toFixed(2)}%</td>
+          <td class="event-warning">${escapeHtml(ev.sellWarning || '-')}</td>
+        </tr>
+      `)
+    ).join('');
+  }
 }
 
 function init() {

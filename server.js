@@ -448,6 +448,26 @@ function findNewsForDate(newsList, eventDate) {
 
 const US_MARKET_NEWS_SYMBOLS = ['AAPL', 'NVDA', 'SPY', 'MSFT'];
 
+function parseNewsItem(n) {
+  const ts = n.datetime ?? n.publishedDate ?? n.date ?? n.time;
+  const head = n.headline ?? n.title ?? n.summary ?? '';
+  if (!head) return null;
+  let sec = 0;
+  if (typeof ts === 'number' && Number.isFinite(ts)) {
+    sec = ts < 1e12 ? ts : Math.floor(ts / 1000);
+  } else if (ts != null && ts !== '') {
+    const t = new Date(ts).getTime();
+    if (!Number.isFinite(t)) return null;
+    sec = Math.floor(t / 1000);
+  } else {
+    return null;
+  }
+  const dt = new Date(sec * 1000);
+  if (!Number.isFinite(dt.getTime())) return null;
+  const dateStr = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+  return { date: dateStr, headline: String(head).substring(0, 500) };
+}
+
 async function fetchMarketNews(fromDate, toDate, opts = {}) {
   const { skipCache = false } = opts;
   const key = `market:${fromDate}:${toDate}`;
@@ -463,36 +483,10 @@ async function fetchMarketNews(fromDate, toDate, opts = {}) {
   const toTs = Math.floor(new Date(toDateCapped + 'T23:59:59Z').getTime() / 1000);
 
   const allNews = [];
-  for (const symbol of US_MARKET_NEWS_SYMBOLS) {
-    try {
-      const url = `https://finnhub.io/api/v1/company-news?symbol=${encodeURIComponent(symbol)}&from=${fromTs}&to=${toTs}&token=${apiKey}`;
-      const body = await new Promise((resolve, reject) => {
-        https.get(url, (res) => {
-          let data = '';
-          res.on('data', c => data += c);
-          res.on('end', () => resolve(data));
-        }).on('error', reject);
-      });
-      const parsed = JSON.parse(body || '[]');
-      if (!Array.isArray(parsed)) {
-        if (parsed && parsed.error) console.warn(`[Finnhub ${symbol}]`, parsed.error);
-        continue;
-      }
-      for (const n of parsed) {
-        if (!n.datetime || !n.headline) continue;
-        const dt = new Date(n.datetime * 1000);
-        const dateStr = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
-        allNews.push({ date: dateStr, headline: (n.headline || '').substring(0, 500) });
-      }
-      await delay(150);
-    } catch (err) {
-      console.warn(`[미국시장 뉴스 ${symbol}]`, err.message);
-    }
-  }
 
-  if (allNews.length === 0) {
+  const tryMarketNews = async (path = 'market-news') => {
     try {
-      const url = `https://finnhub.io/api/v1/market-news?category=general&token=${apiKey}`;
+      const url = `https://finnhub.io/api/v1/${path}?category=general&token=${apiKey}`;
       const body = await new Promise((resolve, reject) => {
         https.get(url, (res) => {
           let data = '';
@@ -501,18 +495,47 @@ async function fetchMarketNews(fromDate, toDate, opts = {}) {
         }).on('error', reject);
       });
       const parsed = JSON.parse(body || '[]');
-      if (Array.isArray(parsed)) {
-        for (const n of parsed) {
-          if (!n.datetime || !n.headline) continue;
-          const dt = new Date(n.datetime * 1000);
-          const dateStr = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
-          if (dateStr >= fromDate && dateStr <= toDateCapped) {
-            allNews.push({ date: dateStr, headline: (n.headline || '').substring(0, 500) });
+      if (!Array.isArray(parsed)) return;
+      for (const n of parsed) {
+        const item = parseNewsItem(n);
+        if (item) {
+          if (item.date >= fromDate && item.date <= toDateCapped) {
+            allNews.push(item);
           }
         }
       }
     } catch (err) {
       console.warn('[Finnhub market-news]', err.message);
+    }
+  };
+
+  await tryMarketNews('market-news');
+  if (allNews.length === 0) await tryMarketNews('news');
+
+  if (allNews.length === 0) {
+    for (const symbol of US_MARKET_NEWS_SYMBOLS) {
+      try {
+        const url = `https://finnhub.io/api/v1/company-news?symbol=${encodeURIComponent(symbol)}&from=${fromTs}&to=${toTs}&token=${apiKey}`;
+        const body = await new Promise((resolve, reject) => {
+          https.get(url, (res) => {
+            let data = '';
+            res.on('data', c => data += c);
+            res.on('end', () => resolve(data));
+          }).on('error', reject);
+        });
+        const parsed = JSON.parse(body || '[]');
+        if (!Array.isArray(parsed)) {
+          if (parsed && parsed.error) console.warn(`[Finnhub ${symbol}]`, parsed.error);
+          continue;
+        }
+        for (const n of parsed) {
+          const item = parseNewsItem(n);
+          if (item) allNews.push(item);
+        }
+        await delay(150);
+      } catch (err) {
+        console.warn(`[미국시장 뉴스 ${symbol}]`, err.message);
+      }
     }
   }
 
@@ -524,6 +547,7 @@ async function fetchMarketNews(fromDate, toDate, opts = {}) {
     return true;
   });
   newsCache.set(key, { data: result, expires: Date.now() + NEWS_CACHE_TTL });
+  if (result.length > 0) console.log(`[뉴스] ${fromDate}~${toDateCapped}: ${result.length}건`);
   return result;
 }
 
@@ -542,10 +566,11 @@ function getMarketHeadlineForDate(marketByDate, eventDate) {
   if (exact && exact.length > 0) return exact[0];
   let best = null;
   let bestDiff = Infinity;
+  const maxDays = 14;
   for (const [d, headlines] of marketByDate) {
     if (headlines.length === 0) continue;
     const diff = Math.abs(new Date(d).getTime() - new Date(eventDate).getTime()) / (24 * 60 * 60 * 1000);
-    if (diff <= 3 && diff < bestDiff) {
+    if (diff <= maxDays && diff < bestDiff) {
       best = headlines[0];
       bestDiff = diff;
     }
