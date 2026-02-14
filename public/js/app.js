@@ -73,41 +73,27 @@ const isTabActive = (tab) => document.querySelector(`.tab[data-tab="${tab}"]`).c
 function initSelectors() {
   const yearSelect = document.getElementById('yearSelect');
   const monthSelect = document.getElementById('monthSelect');
-  const eventsYearSelect = document.getElementById('eventsYearSelect');
-  const eventsMonthSelect = document.getElementById('eventsMonthSelect');
 
   for (let y = now.getFullYear(); y >= now.getFullYear() - 5; y--) {
     yearSelect.appendChild(new Option(`${y}년`, y));
-    eventsYearSelect.appendChild(new Option(`${y}년`, y));
   }
   for (let m = 1; m <= 12; m++) {
     monthSelect.appendChild(new Option(`${m}월`, m));
-    eventsMonthSelect.appendChild(new Option(`${m}월`, m));
   }
 
   yearSelect.value = currentYear;
   monthSelect.value = currentMonth;
-  eventsYearSelect.value = currentYear;
-  eventsMonthSelect.value = currentMonth;
 
-  yearSelect.addEventListener('change', () => {
+  const onPeriodChange = () => {
     currentYear = parseInt(yearSelect.value);
     currentMonth = parseInt(monthSelect.value);
     loadTableData();
-    if (document.querySelector('.tab[data-tab="chart"]').classList.contains('active')) loadAllCharts();
-  });
-  monthSelect.addEventListener('change', () => {
-    currentYear = parseInt(yearSelect.value);
-    currentMonth = parseInt(monthSelect.value);
-    loadTableData();
-    if (document.querySelector('.tab[data-tab="chart"]').classList.contains('active')) loadAllCharts();
-  });
-  eventsYearSelect.addEventListener('change', () => {
-    loadEvents();
-  });
-  eventsMonthSelect.addEventListener('change', () => {
-    loadEvents();
-  });
+    if (isTabActive('chart')) loadAllCharts();
+    if (isTabActive('events')) loadEvents(false);
+  };
+
+  yearSelect.addEventListener('change', onPeriodChange);
+  monthSelect.addEventListener('change', onPeriodChange);
 }
 
 function initTabs() {
@@ -126,9 +112,8 @@ function initTabs() {
 function initButtons() {
   document.getElementById('btnUpdate').addEventListener('click', () => {
     loadTableData(true);
+    if (isTabActive('events')) loadEvents(true);
   });
-  document.getElementById('btnLoadEvents').addEventListener('click', () => loadEvents(false));
-  document.getElementById('btnUpdateEvents').addEventListener('click', () => loadEvents(true));
   document.getElementById('btnViewData').addEventListener('click', showDataViewer);
   document.getElementById('btnDownloadData').addEventListener('click', downloadTableAsExcel);
   document.getElementById('dataViewerClose').addEventListener('click', hideDataViewer);
@@ -477,17 +462,12 @@ function renderChartsFromData(json, { force = false } = {}) {
 }
 
 async function loadEvents(forceRefresh = false) {
-  const year = parseInt(document.getElementById('eventsYearSelect').value);
-  const month = parseInt(document.getElementById('eventsMonthSelect').value);
+  const year = currentYear;
+  const month = currentMonth;
   const tbody = document.getElementById('eventsBody');
-  const btnLoad = document.getElementById('btnLoadEvents');
-  const btnUpdate = document.getElementById('btnUpdateEvents');
   const key = makePeriodKey(year, month);
   const cached = eventsCache.get(key);
   const alreadyShowing = lastRenderedEventsKey === key && tbody.children.length > 0;
-
-  btnLoad.disabled = true;
-  btnUpdate.disabled = true;
 
   if (forceRefresh) {
     eventsCache.delete(key);
@@ -532,9 +512,6 @@ async function loadEvents(forceRefresh = false) {
     if (!cached && !alreadyShowing) {
       tbody.innerHTML = '<tr><td colspan="5" class="empty">데이터를 불러올 수 없습니다.</td></tr>';
     }
-  } finally {
-    btnLoad.disabled = false;
-    btnUpdate.disabled = false;
   }
 }
 
