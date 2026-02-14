@@ -491,12 +491,12 @@ async function loadEvents(forceRefresh = false) {
 
   if (forceRefresh) {
     eventsCache.delete(key);
-    tbody.innerHTML = '<tr><td colspan="6" class="loading">업데이트 중...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="loading">업데이트 중...</td></tr>';
   } else if (!alreadyShowing) {
     if (cached) {
       renderEvents(cached);
     } else {
-      tbody.innerHTML = '<tr><td colspan="6" class="loading">로딩 중...</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="loading">로딩 중...</td></tr>';
     }
   }
 
@@ -515,7 +515,7 @@ async function loadEvents(forceRefresh = false) {
     if (!res.ok || json.success === false) {
       showErrorPopup('이벤트 조회 실패', json?.error || '알 수 없는 오류', json?.cause);
       if (!cached && !alreadyShowing) {
-        tbody.innerHTML = '<tr><td colspan="6" class="empty">데이터를 불러올 수 없습니다.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">데이터를 불러올 수 없습니다.</td></tr>';
       }
       return;
     }
@@ -530,7 +530,7 @@ async function loadEvents(forceRefresh = false) {
   } catch (e) {
     showErrorPopup('이벤트 조회 오류', e.message, e.message.includes('fetch') ? '서버 연결을 확인하세요.' : null);
     if (!cached && !alreadyShowing) {
-      tbody.innerHTML = '<tr><td colspan="6" class="empty">데이터를 불러올 수 없습니다.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="empty">데이터를 불러올 수 없습니다.</td></tr>';
     }
   } finally {
     btnLoad.disabled = false;
@@ -547,7 +547,7 @@ function renderEvents(json, { force = false } = {}) {
   const dates = Object.keys(events).sort();
 
   if (dates.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty">해당 월에 상승/하락 이유를 설명한 뉴스가 있는 가격 변동 이벤트가 없습니다.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="empty">해당 월에 가격 변동 3% 이상인 이벤트가 없습니다.</td></tr>';
     return;
   }
 
@@ -557,8 +557,7 @@ function renderEvents(json, { force = false } = {}) {
         <td>${escapeHtml(date)}</td>
         <td>${escapeHtml(ev.item)}</td>
         <td class="${ev.type === '상승' ? 'event-up' : 'event-down'}">${ev.type} ${ev.change >= 0 ? '+' : ''}${ev.change.toFixed(2)}%</td>
-        <td>${escapeHtml(ev.description)}</td>
-        <td class="event-news">${escapeHtml(ev.newsHeadline || '-')}</td>
+        <td class="event-news">${(ev.newsHeadline && String(ev.newsHeadline).trim()) ? escapeHtml(String(ev.newsHeadline).trim()) : '(뉴스 없음)'}</td>
         <td class="event-warning">${escapeHtml(ev.sellWarning || '-')}</td>
       </tr>
     `)

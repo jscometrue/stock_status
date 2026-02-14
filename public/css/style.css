@@ -335,7 +335,8 @@ main {
 
 .events-table .event-up { color: var(--up); }
 .events-table .event-down { color: var(--down); }
-.events-table .event-news { font-size: 0.85rem; color: var(--text-muted); max-width: 300px; }
+.events-table .event-news { font-size: 0.85rem; color: var(--text-muted); max-width: 300px; min-width: 80px; }
+.events-table .event-news:empty::before { content: '(뉴스 없음)'; color: var(--text-muted); }
 .events-table .event-warning {
   font-size: 0.85rem;
   max-width: 240px;
