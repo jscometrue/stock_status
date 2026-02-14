@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>금융 지수·주가 일별 대시보드</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <header>
+    <h1>금융 지수·주가 일별 대시보드</h1>
+    <div class="month-selector">
+      <select id="yearSelect"></select>
+      <span>년</span>
+      <select id="monthSelect"></select>
+      <span>월</span>
+      <button id="btnUpdate" class="btn-primary">업데이트</button>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="table">테이블</button>
+    <button class="tab" data-tab="chart">차트</button>
+    <button class="tab" data-tab="events">뉴스/이벤트</button>
+  </nav>
+
+  <main>
+    <!-- 테이블 탭 -->
+    <section id="tab-table" class="tab-content active">
+      <div class="table-actions">
+        <button id="btnViewData" class="btn-secondary" type="button">데이터 보기</button>
+        <button id="btnDownloadData" class="btn-secondary" type="button">엑셀 다운로드</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr id="tableHeader"></tr>
+          </thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 차트 탭 -->
+    <section id="tab-chart" class="tab-content">
+      <div class="chart-controls">
+        <span class="chart-hint">※ 상단 연도/월 선택 후 해당 월 기준 일별 추이를 표시합니다 (가로 4개)</span>
+      </div>
+      <div class="chart-color-legend">
+        <span class="legend-item"><span class="legend-dot" style="background:#58a6ff"></span> 파란색: 기본</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#f85149"></span> 빨간색: 2일 이상 연속 하락 또는 당월 고점 대비 3% 이상 하락</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#d29922"></span> 노란색: 당월 고점 대비 5% 이상 하락</span>
+      </div>
+      <div id="chartsGrid" class="charts-grid"></div>
+    </section>
+
+    <!-- 뉴스/이벤트 탭 -->
+    <section id="tab-events" class="tab-content">
+      <div class="events-header">
+        <div class="events-month-selector">
+          <select id="eventsYearSelect"></select>
+          <span>년</span>
+          <select id="eventsMonthSelect"></select>
+          <span>월</span>
+          <button id="btnLoadEvents" class="btn-primary">조회</button>
+        </div>
+        <span class="events-hint">※ 상승/하락 이유를 설명한 뉴스 기사가 있는 경우만 표시됩니다</span>
+      </div>
+      <div class="events-table-wrap">
+        <table class="events-table">
+          <thead>
+            <tr>
+              <th>날짜</th>
+              <th>항목</th>
+              <th>변동</th>
+              <th>설명</th>
+              <th>관련 뉴스</th>
+              <th>매도 시점 경고</th>
+            </tr>
+          </thead>
+          <tbody id="eventsBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- 데이터 뷰어 -->
+  <div id="dataViewerPopup" class="popup-overlay" role="dialog" aria-label="데이터 뷰어">
+    <div class="popup-modal popup-viewer">
+      <div class="popup-header">
+        <h3 id="dataViewerTitle">데이터 뷰어</h3>
+        <div class="popup-header-actions">
+          <button id="btnViewerDownload" class="btn-secondary btn-sm" type="button">엑셀 다운로드</button>
+          <button type="button" class="popup-close" id="dataViewerClose" aria-label="닫기">&times;</button>
+        </div>
+      </div>
+      <div class="popup-body popup-viewer-body">
+        <div id="dataViewerTableWrap" class="viewer-table-wrap"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 에러 팝업 -->
+  <div id="errorPopup" class="popup-overlay" role="alert" aria-live="assertive">
+    <div class="popup-modal">
+      <div class="popup-header">
+        <h3 id="errorPopupTitle">오류</h3>
+        <button type="button" class="popup-close" id="errorPopupClose" aria-label="닫기">&times;</button>
+      </div>
+      <div class="popup-body">
+        <p id="errorPopupMessage"></p>
+        <p id="errorPopupCause" class="popup-cause"></p>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>

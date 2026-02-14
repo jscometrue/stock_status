@@ -1,0 +1,16 @@
+{
+  "name": "stock-status-dashboard",
+  "version": "1.0.0",
+  "description": "일별 금융 지수 및 주가 대시보드",
+  "main": "server.js",
+  "engines": {"node": ">=18.0.0"},
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2"
+  }
+}

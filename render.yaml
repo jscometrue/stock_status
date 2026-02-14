@@ -1,0 +1,16 @@
+# Render Blueprint - 금융 지수·주가 일별 대시보드
+# https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: stock-status-dashboard
+    runtime: node
+    region: singapore
+
+    buildCommand: npm install
+    startCommand: npm start
+
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: FINNHUB_API_KEY
+        sync: false
