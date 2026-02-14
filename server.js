@@ -446,6 +446,65 @@ function findNewsForDate(newsList, eventDate) {
   return newsList.find(n => n.date === eventDate || isAdjacentDate(n.date, eventDate)) || null;
 }
 
+async function fetchMarketNews(fromDate, toDate, opts = {}) {
+  const { skipCache = false } = opts;
+  const key = `market:${fromDate}:${toDate}`;
+  const cached = newsCache.get(key);
+  if (!skipCache && cached && cached.expires > Date.now()) return cached.data;
+
+  const apiKey = process.env.FINNHUB_API_KEY;
+  if (!apiKey) return [];
+
+  const today = formatYMD(new Date());
+  const toDateCapped = toDate > today ? today : toDate;
+  const fromTs = Math.floor(new Date(fromDate + 'T00:00:00Z').getTime() / 1000);
+  const toTs = Math.floor(new Date(toDateCapped + 'T23:59:59Z').getTime() / 1000);
+  const url = `https://finnhub.io/api/v1/company-news?symbol=SPY&from=${fromTs}&to=${toTs}&token=${apiKey}`;
+
+  try {
+    const body = await new Promise((resolve, reject) => {
+      https.get(url, (res) => {
+        let data = '';
+        res.on('data', c => data += c);
+        res.on('end', () => resolve(data));
+      }).on('error', reject);
+    });
+    const parsed = JSON.parse(body || '[]');
+    if (!Array.isArray(parsed)) {
+      if (parsed && parsed.error) console.warn('[Finnhub Market]', parsed.error);
+      return [];
+    }
+    const result = parsed.map(n => ({
+      date: n.datetime ? new Date(n.datetime * 1000).toISOString().slice(0, 10) : null,
+      headline: (n.headline || '').substring(0, 500)
+    })).filter(n => n.date);
+    newsCache.set(key, { data: result, expires: Date.now() + NEWS_CACHE_TTL });
+    return result;
+  } catch (err) {
+    console.warn('[미국시장 뉴스]', err.message);
+    return [];
+  }
+}
+
+function buildMarketNewsByDate(marketNewsList) {
+  const byDate = new Map();
+  if (!marketNewsList || marketNewsList.length === 0) return byDate;
+  for (const n of marketNewsList) {
+    if (!byDate.has(n.date)) byDate.set(n.date, []);
+    byDate.get(n.date).push(n.headline);
+  }
+  return byDate;
+}
+
+function getMarketHeadlineForDate(marketByDate, eventDate) {
+  const exact = marketByDate.get(eventDate);
+  if (exact && exact.length > 0) return exact[0];
+  for (const [d, headlines] of marketByDate) {
+    if (headlines.length > 0 && isAdjacentDate(d, eventDate)) return headlines[0];
+  }
+  return null;
+}
+
 function isAdjacentDate(d1, d2) {
   const a = new Date(d1).getTime();
   const b = new Date(d2).getTime();
@@ -532,24 +591,14 @@ app.get('/api/events/:year/:month', async (req, res) => {
       }
     }
 
-    const symbolsToFetch = [...new Set(
-      candidateEvents
-        .filter(e => e.itemObj.newsSymbol)
-        .map(e => e.itemObj.newsSymbol)
-    )];
-
-    const newsBySymbol = {};
-    for (const sym of symbolsToFetch) {
-      newsBySymbol[sym] = await fetchNewsForSymbol(sym, monthStart, monthEnd, { skipCache: forceRefresh });
-      await delay(200);
-    }
+    const marketNews = await fetchMarketNews(monthStart, monthEnd, { skipCache: forceRefresh });
+    const marketByDate = buildMarketNewsByDate(marketNews);
 
     const events = [];
     for (const ev of candidateEvents) {
       const newsSym = ev.itemObj.newsSymbol;
       if (!newsSym) continue;
-      const newsList = newsBySymbol[newsSym] || [];
-      const newsItem = findNewsForDate(newsList, ev.date);
+      const marketHeadline = getMarketHeadlineForDate(marketByDate, ev.date);
       const itemData = raw[ev.itemObj.id] || [];
       const sellWarning = getSellTimingWarning(itemData, ev.date, ev.change, ev.type);
       events.push({
@@ -558,7 +607,7 @@ app.get('/api/events/:year/:month', async (req, res) => {
         change: ev.change,
         type: ev.type,
         description: ev.description,
-        newsHeadline: newsItem ? (newsItem.headline || null) : null,
+        newsHeadline: marketHeadline,
         sellWarning
       });
     }
