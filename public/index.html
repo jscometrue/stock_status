@@ -107,15 +107,15 @@
       </div>
       <div class="popup-body">
         <p class="symbol-change-current" id="symbolChangeCurrent"></p>
-        <label class="symbol-change-label">변경할 종목 심볼 (예: AAPL, NVDA, 360750.KS)</label>
-        <input type="text" id="symbolChangeInput" class="symbol-change-input" placeholder="심볼 입력" autocomplete="off" />
+        <label class="symbol-change-label">종목명 또는 심볼 검색 (예: 애플, Apple, NVDA)</label>
+        <input type="text" id="symbolChangeInput" class="symbol-change-input" placeholder="검색어 입력" autocomplete="off" />
+        <div id="symbolSearchResults" class="symbol-search-results" hidden></div>
         <p id="symbolValidateMessage" class="symbol-validate-message" aria-live="polite"></p>
         <div id="symbolConfirmBlock" class="symbol-confirm-block" hidden>
           <p class="symbol-confirm-info" id="symbolConfirmInfo"></p>
           <p class="symbol-confirm-question">이 종목으로 변경하시겠습니까?</p>
         </div>
         <div class="popup-actions">
-          <button type="button" id="symbolChangeBtnValidate" class="btn-secondary">종목 확인</button>
           <button type="button" id="symbolChangeBtnConfirm" class="btn-primary" hidden>최종 변경</button>
           <button type="button" id="symbolChangeBtnCancel" class="btn-secondary">취소</button>
         </div>

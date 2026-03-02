@@ -439,13 +439,51 @@ main {
 .symbol-change-input {
   width: 100%;
   padding: 0.5rem 0.6rem;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.5rem;
   font-size: 1rem;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg);
   color: var(--text);
   box-sizing: border-box;
+}
+.symbol-search-results {
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 0.75rem;
+  background: var(--bg);
+}
+.symbol-search-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.symbol-search-item:last-child { border-bottom: none; }
+.symbol-search-item:hover {
+  background: var(--border);
+}
+.symbol-search-item .symbol-search-name {
+  display: block;
+  font-weight: 600;
+}
+.symbol-search-item .symbol-search-symbol {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-family: ui-monospace, monospace;
+  margin-right: 0.5rem;
+}
+.symbol-search-item .symbol-search-exchange {
+  font-size: 0.75rem;
+  color: var(--text-muted);
 }
 .symbol-validate-message {
   font-size: 0.9rem;

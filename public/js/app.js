@@ -562,6 +562,9 @@ function openSymbolChangePopup(item) {
   document.getElementById('symbolValidateMessage').className = 'symbol-validate-message';
   document.getElementById('symbolConfirmBlock').hidden = true;
   document.getElementById('symbolChangeBtnConfirm').hidden = true;
+  const resultsEl = document.getElementById('symbolSearchResults');
+  resultsEl.hidden = true;
+  resultsEl.innerHTML = '';
   document.getElementById('symbolChangePopup').classList.add('visible');
   document.getElementById('symbolChangeInput').focus();
 }
@@ -573,40 +576,62 @@ function hideSymbolChangePopup() {
   validatedName = null;
 }
 
-async function validateSymbolAndShow() {
+let symbolSearchDebounceTimer = null;
+
+async function runSymbolSearch() {
   const input = document.getElementById('symbolChangeInput').value.trim();
+  const resultsEl = document.getElementById('symbolSearchResults');
   const msgEl = document.getElementById('symbolValidateMessage');
-  const confirmBlock = document.getElementById('symbolConfirmBlock');
-  const confirmInfo = document.getElementById('symbolConfirmInfo');
-  const btnConfirm = document.getElementById('symbolChangeBtnConfirm');
-  if (!input) {
-    msgEl.textContent = '심볼을 입력하세요.';
-    msgEl.className = 'symbol-validate-message error';
+  if (!input || input.length < 2) {
+    resultsEl.hidden = true;
+    resultsEl.innerHTML = '';
+    msgEl.textContent = '2글자 이상 입력하세요.';
+    msgEl.className = 'symbol-validate-message';
     return;
   }
-  msgEl.textContent = '확인 중...';
+  msgEl.textContent = '검색 중...';
   msgEl.className = 'symbol-validate-message';
-  confirmBlock.hidden = true;
-  btnConfirm.hidden = true;
   try {
-    const res = await fetch(`${API}/symbols/validate?symbol=${encodeURIComponent(input)}`);
+    const res = await fetch(`${API}/symbols/search?q=${encodeURIComponent(input)}`);
     const json = await res.json();
-    if (!json.valid) {
-      msgEl.textContent = json.error || '종목을 찾을 수 없습니다.';
+    const list = json.suggestions || [];
+    if (list.length === 0) {
+      msgEl.textContent = '유사한 종목이 없습니다. 다른 검색어를 입력해 보세요.';
       msgEl.className = 'symbol-validate-message error';
+      resultsEl.hidden = true;
+      resultsEl.innerHTML = '';
       return;
     }
-    validatedSymbol = json.symbol || input;
-    validatedName = json.name || input;
-    msgEl.textContent = `종목 확인됨: ${validatedName} (${validatedSymbol})`;
-    msgEl.className = 'symbol-validate-message success';
-    confirmInfo.textContent = `"${symbolChangeCurrentItem.name}" 항목을 "${validatedName}" (${validatedSymbol})로 변경합니다.`;
-    confirmBlock.hidden = false;
-    btnConfirm.hidden = false;
+    msgEl.textContent = '';
+    resultsEl.innerHTML = list.map((s) => `
+      <button type="button" class="symbol-search-item" data-symbol="${escapeHtml(s.symbol)}" data-name="${escapeHtml(s.name)}">
+        <span class="symbol-search-name">${escapeHtml(s.name)}</span>
+        <span class="symbol-search-symbol">${escapeHtml(s.symbol)}</span>
+        ${s.exchange ? `<span class="symbol-search-exchange">${escapeHtml(s.exchange)}</span>` : ''}
+      </button>
+    `).join('');
+    resultsEl.hidden = false;
+    resultsEl.querySelectorAll('.symbol-search-item').forEach((btn) => {
+      btn.addEventListener('click', () => selectSymbolFromSearch(btn.dataset.symbol, btn.dataset.name));
+    });
   } catch (e) {
-    msgEl.textContent = e.message || '확인 중 오류가 발생했습니다.';
+    msgEl.textContent = e.message || '검색 중 오류가 발생했습니다.';
     msgEl.className = 'symbol-validate-message error';
+    resultsEl.hidden = true;
+    resultsEl.innerHTML = '';
   }
+}
+
+function selectSymbolFromSearch(symbol, name) {
+  validatedSymbol = symbol;
+  validatedName = name;
+  document.getElementById('symbolSearchResults').hidden = true;
+  document.getElementById('symbolSearchResults').innerHTML = '';
+  document.getElementById('symbolValidateMessage').textContent = `선택: ${name} (${symbol})`;
+  document.getElementById('symbolValidateMessage').className = 'symbol-validate-message success';
+  document.getElementById('symbolConfirmInfo').textContent = `"${symbolChangeCurrentItem.name}" 항목을 "${name}" (${symbol})로 변경합니다.`;
+  document.getElementById('symbolConfirmBlock').hidden = false;
+  document.getElementById('symbolChangeBtnConfirm').hidden = false;
 }
 
 async function confirmSymbolOverride() {
@@ -665,10 +690,18 @@ function initSymbolChangePopup() {
   document.getElementById('symbolChangePopup').addEventListener('click', (e) => {
     if (e.target.id === 'symbolChangePopup') hideSymbolChangePopup();
   });
-  document.getElementById('symbolChangeBtnValidate').addEventListener('click', validateSymbolAndShow);
   document.getElementById('symbolChangeBtnConfirm').addEventListener('click', confirmSymbolOverride);
-  document.getElementById('symbolChangeInput').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') validateSymbolAndShow();
+  const searchInput = document.getElementById('symbolChangeInput');
+  searchInput.addEventListener('input', () => {
+    clearTimeout(symbolSearchDebounceTimer);
+    symbolSearchDebounceTimer = setTimeout(runSymbolSearch, 350);
+  });
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      clearTimeout(symbolSearchDebounceTimer);
+      runSymbolSearch();
+    }
   });
 }
 

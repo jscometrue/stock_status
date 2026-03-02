@@ -775,6 +775,47 @@ app.get('/api/symbols', (req, res) => {
   res.json({ items: getEffectiveItems() });
 });
 
+// Yahoo Finance 종목 검색 (이름 또는 심볼로 유사 항목 검색)
+async function searchYahooSymbols(query) {
+  const q = (query || '').trim();
+  if (!q || q.length < 2) return [];
+  const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=15&newsCount=0`;
+  const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+  const html = await new Promise((resolve, reject) => {
+    const req = https.get(url, { headers: { 'User-Agent': ua } }, (res) => {
+      let body = '';
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => (res.statusCode === 200 ? resolve(body) : reject(new Error(`HTTP ${res.statusCode}`))));
+    });
+    req.on('error', reject);
+    req.setTimeout(8000, () => { req.destroy(); reject(new Error('TIMEOUT')); });
+  });
+  const json = JSON.parse(html);
+  const quotes = json?.quotes || [];
+  return quotes
+    .filter((x) => x.symbol && (x.shortname || x.longname))
+    .map((x) => ({
+      symbol: x.symbol,
+      name: (x.shortname || x.longname || x.symbol).trim(),
+      exchange: x.exchangeDisp || x.exchange || ''
+    }));
+}
+
+// API: 종목 검색 (이름 또는 코드로 유사 항목 조회)
+app.get('/api/symbols/search', async (req, res) => {
+  try {
+    const q = (req.query.q || req.query.query || '').trim();
+    if (!q) {
+      return res.json({ suggestions: [] });
+    }
+    const suggestions = await searchYahooSymbols(q);
+    res.json({ suggestions });
+  } catch (err) {
+    console.warn('symbol search:', err.message);
+    res.json({ suggestions: [] });
+  }
+});
+
 // API: 심볼 검증 (Yahoo 존재 여부 + 종목 정보)
 app.get('/api/symbols/validate', async (req, res) => {
   try {
