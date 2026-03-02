@@ -775,38 +775,93 @@ app.get('/api/symbols', (req, res) => {
   res.json({ items: getEffectiveItems() });
 });
 
-// 한글 종목명 → Yahoo 검색용 영문/심볼 fallback (한글 검색 4xx 시 재시도)
+// 한글 종목명 → Yahoo 검색용 영문/심볼 fallback (한글 검색 실패 시 재시도)
+// 키: 정규화된 검색어, 값: 시도할 검색어 배열 (순서대로 시도)
 const SEARCH_FALLBACK_KO = {
-  '삼성전자': 'Samsung Electronics',
-  '삼성전자주식': 'Samsung Electronics',
-  '현대자동차': 'Hyundai Motor',
-  '현대차': 'Hyundai Motor',
-  'sk하이닉스': 'SK Hynix',
-  '엔비디아': 'NVIDIA',
-  '앤비디아': 'NVIDIA',
-  '애플': 'Apple',
-  '테슬라': 'Tesla',
-  '네이버': 'Naver',
-  '카카오': 'Kakao',
-  'lg에너지솔루션': 'LG Energy Solution',
-  '기아': 'Kia',
-  '삼성바이오로직스': 'Samsung Biologics',
-  '삼성sdi': 'Samsung SDI',
-  '삼성엔지니어링': 'Samsung E&C',
-  'kb금융': 'KB Financial',
-  '신한지주': 'Shinhan Financial',
-  '포스코홀딩스': 'POSCO Holdings',
-  '셀트리온': 'Celltrion',
-  '삼성생명': 'Samsung Life Insurance',
-  '한국전력': 'Korea Electric Power',
-  'lg전자': 'LG Electronics',
-  '삼성물산': 'Samsung C&T',
-  'naver': 'Naver',
-  'kakao': 'Kakao'
+  '삼성전자': ['Samsung Electronics', '005930.KS'],
+  '삼성전자주식': ['Samsung Electronics', '005930.KS'],
+  '삼성': ['Samsung Electronics', 'Samsung'],
+  '현대자동차': ['Hyundai Motor', '005380.KS'],
+  '현대차': ['Hyundai Motor', '005380.KS'],
+  'sk하이닉스': ['SK Hynix', '000660.KS'],
+  '엔비디아': ['NVIDIA'],
+  '앤비디아': ['NVIDIA'],
+  '애플': ['Apple', 'AAPL'],
+  '테슬라': ['Tesla', 'TSLA'],
+  '네이버': ['Naver', '035420.KS'],
+  '카카오': ['Kakao', '035720.KS'],
+  'lg에너지솔루션': ['LG Energy Solution'],
+  '기아': ['Kia', '000270.KS'],
+  '삼성바이오로직스': ['Samsung Biologics'],
+  '삼성sdi': ['Samsung SDI'],
+  '삼성엔지니어링': ['Samsung E&C'],
+  'kb금융': ['KB Financial'],
+  '신한지주': ['Shinhan Financial'],
+  '포스코홀딩스': ['POSCO Holdings'],
+  '셀트리온': ['Celltrion'],
+  '삼성생명': ['Samsung Life Insurance'],
+  '한국전력': ['Korea Electric Power'],
+  'lg전자': ['LG Electronics'],
+  '삼성물산': ['Samsung C&T'],
+  'naver': ['Naver'],
+  'kakao': ['Kakao']
 };
 
 function normalizeSearchFallbackKey(str) {
   return (str || '').trim().replace(/\s+/g, '').toLowerCase();
+}
+
+// 한글(완성형) 포함 여부
+function hasHangul(str) {
+  return /[\uac00-\ud7a3]/.test(str || '');
+}
+
+// 한글 → 영어 번역 (MyMemory 무료 API, API 키 불필요)
+async function translateKoToEn(text) {
+  const t = (text || '').trim();
+  if (!t || !hasHangul(t)) return null;
+  const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(t)}&langpair=ko|en`;
+  try {
+    const html = await new Promise((resolve, reject) => {
+      const req = https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; StockDashboard/1.0)' } }, (res) => {
+        let body = '';
+        res.on('data', (c) => { body += c; });
+        res.on('end', () => (res.statusCode === 200 ? resolve(body) : reject(new Error(`HTTP ${res.statusCode}`))));
+      });
+      req.on('error', reject);
+      req.setTimeout(6000, () => { req.destroy(); reject(new Error('TIMEOUT')); });
+    });
+    const json = JSON.parse(html);
+    const translated = json?.responseData?.translatedText;
+    if (translated && typeof translated === 'string') {
+      const out = translated.trim();
+      if (out && out !== t) return out;
+    }
+  } catch (e) {
+    console.warn('translate Ko→En:', e.message);
+  }
+  return null;
+}
+
+// 한글 포함 시 사용할 fallback 후보 반환 (정확 매칭 + 포함 매칭)
+function getFallbackTerms(normalizedKey) {
+  if (!normalizedKey) return [];
+  const exact = SEARCH_FALLBACK_KO[normalizedKey];
+  if (exact) return Array.isArray(exact) ? exact : [exact];
+  const out = [];
+  if (normalizedKey.includes('삼성전자')) out.push('Samsung Electronics', '005930.KS');
+  else if (normalizedKey.includes('삼성')) out.push('Samsung Electronics', 'Samsung');
+  if (normalizedKey.includes('현대차') || normalizedKey.includes('현대자동차')) out.push('Hyundai Motor', '005380.KS');
+  if (normalizedKey.includes('네이버')) out.push('Naver', '035420.KS');
+  if (normalizedKey.includes('카카오')) out.push('Kakao', '035720.KS');
+  if (normalizedKey.includes('엔비디아') || normalizedKey.includes('앤비디아')) out.push('NVIDIA');
+  if (normalizedKey.includes('애플')) out.push('Apple', 'AAPL');
+  if (normalizedKey.includes('테슬라')) out.push('Tesla', 'TSLA');
+  if (normalizedKey.includes('알파벳')) out.push('Alphabet', 'GOOGL');
+  if (normalizedKey.includes('마이크로소프트')) out.push('Microsoft', 'MSFT');
+  if (normalizedKey.includes('아마존')) out.push('Amazon', 'AMZN');
+  if (normalizedKey.includes('메타')) out.push('Meta', 'META');
+  return out;
 }
 
 async function fetchYahooSearch(query) {
@@ -850,7 +905,7 @@ async function fetchYahooSearch(query) {
     }));
 }
 
-// Yahoo Finance 종목 검색 (한글 입력 시 fallback으로 영문 재시도)
+// Yahoo Finance 종목 검색 (한글 입력 시 사전 fallback → 번역 후 영문 검색)
 async function searchYahooSymbols(query) {
   const q = (query || '').trim();
   if (!q || q.length < 2) return [];
@@ -862,12 +917,24 @@ async function searchYahooSymbols(query) {
   }
   if (list.length > 0) return list;
   const key = normalizeSearchFallbackKey(q);
-  const fallback = key && SEARCH_FALLBACK_KO[key];
-  if (fallback) {
+  const fallbackTerms = getFallbackTerms(key);
+  for (const term of fallbackTerms) {
     try {
-      list = await fetchYahooSearch(fallback);
+      list = await fetchYahooSearch(term);
+      if (list.length > 0) return list;
     } catch (e) {
-      console.warn('symbol search fallback:', e.message);
+      console.warn('symbol search fallback:', term, e.message);
+    }
+  }
+  if (hasHangul(q)) {
+    const translated = await translateKoToEn(q);
+    if (translated) {
+      try {
+        list = await fetchYahooSearch(translated);
+        if (list.length > 0) return list;
+      } catch (e) {
+        console.warn('symbol search after translate:', e.message);
+      }
     }
   }
   return list;
@@ -876,7 +943,8 @@ async function searchYahooSymbols(query) {
 // API: 종목 검색 (이름 또는 코드로 유사 항목 조회) — 항상 200, 404 미반환
 app.get('/api/symbols/search', async (req, res) => {
   try {
-    const q = (req.query.q || req.query.query || '').trim();
+    let q = (req.query.q || req.query.query || '').trim();
+    q = q.replace(/[\u200b-\u200f\ufeff]/g, '').trim();
     if (!q) {
       return res.json({ suggestions: [] });
     }
