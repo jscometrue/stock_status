@@ -804,7 +804,9 @@ const SEARCH_FALLBACK_KO = {
   'lg전자': ['LG Electronics'],
   '삼성물산': ['Samsung C&T'],
   'naver': ['Naver'],
-  'kakao': ['Kakao']
+  'kakao': ['Kakao'],
+  '팔란티어': ['Palantir', 'PLTR'],
+  '팔란티어테크놀로지': ['Palantir', 'PLTR']
 };
 
 function normalizeSearchFallbackKey(str) {
@@ -861,6 +863,7 @@ function getFallbackTerms(normalizedKey) {
   if (normalizedKey.includes('마이크로소프트')) out.push('Microsoft', 'MSFT');
   if (normalizedKey.includes('아마존')) out.push('Amazon', 'AMZN');
   if (normalizedKey.includes('메타')) out.push('Meta', 'META');
+  if (normalizedKey.includes('팔란티어')) out.push('Palantir', 'PLTR');
   return out;
 }
 
