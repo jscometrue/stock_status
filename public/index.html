@@ -23,6 +23,7 @@
     <button class="tab active" data-tab="table">테이블</button>
     <button class="tab" data-tab="chart">차트</button>
     <button class="tab" data-tab="events">뉴스/이벤트</button>
+    <button class="tab" data-tab="symbols">항목 관리</button>
   </nav>
 
   <main>
@@ -69,6 +70,16 @@
         </table>
       </div>
     </section>
+
+    <!-- 항목 관리 탭 -->
+    <section id="tab-symbols" class="tab-content">
+      <div class="symbols-header">
+        <span class="symbols-hint">※ 현재 주가 항목 목록. 항목을 선택하면 다른 종목으로 변경하거나 원래 종목으로 복원할 수 있습니다.</span>
+      </div>
+      <div class="symbols-list-wrap">
+        <ul id="symbolsList" class="symbols-list"></ul>
+      </div>
+    </section>
   </main>
 
   <!-- 데이터 뷰어 -->
@@ -83,6 +94,31 @@
       </div>
       <div class="popup-body popup-viewer-body">
         <div id="dataViewerTableWrap" class="viewer-table-wrap"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 항목 변경 팝업 -->
+  <div id="symbolChangePopup" class="popup-overlay symbol-change-popup" role="dialog" aria-label="항목 변경">
+    <div class="popup-modal">
+      <div class="popup-header">
+        <h3 id="symbolChangeTitle">다른 종목으로 변경</h3>
+        <button type="button" class="popup-close" id="symbolChangeClose" aria-label="닫기">&times;</button>
+      </div>
+      <div class="popup-body">
+        <p class="symbol-change-current" id="symbolChangeCurrent"></p>
+        <label class="symbol-change-label">변경할 종목 심볼 (예: AAPL, NVDA, 360750.KS)</label>
+        <input type="text" id="symbolChangeInput" class="symbol-change-input" placeholder="심볼 입력" autocomplete="off" />
+        <p id="symbolValidateMessage" class="symbol-validate-message" aria-live="polite"></p>
+        <div id="symbolConfirmBlock" class="symbol-confirm-block" hidden>
+          <p class="symbol-confirm-info" id="symbolConfirmInfo"></p>
+          <p class="symbol-confirm-question">이 종목으로 변경하시겠습니까?</p>
+        </div>
+        <div class="popup-actions">
+          <button type="button" id="symbolChangeBtnValidate" class="btn-secondary">종목 확인</button>
+          <button type="button" id="symbolChangeBtnConfirm" class="btn-primary" hidden>최종 변경</button>
+          <button type="button" id="symbolChangeBtnCancel" class="btn-secondary">취소</button>
+        </div>
       </div>
     </div>
   </div>

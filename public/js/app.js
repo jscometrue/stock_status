@@ -136,6 +136,7 @@ function initTabs() {
       document.getElementById(`tab-${t.dataset.tab}`).classList.add('active');
       if (t.dataset.tab === 'chart') loadAllCharts();
       if (t.dataset.tab === 'events') loadEvents();
+      if (t.dataset.tab === 'symbols') loadSymbolsList();
     });
   });
 }
@@ -156,6 +157,7 @@ function initButtons() {
   document.getElementById('dataViewerPopup').addEventListener('click', (e) => {
     if (e.target.id === 'dataViewerPopup') hideDataViewer();
   });
+  initSymbolChangePopup();
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       hideErrorPopup();
@@ -497,6 +499,176 @@ function renderChartsFromData(json, { force = false } = {}) {
       }
     });
     priceCharts.push(chart);
+  });
+}
+
+// ---------- 항목 관리 (심볼 변경/복원) ----------
+let symbolsListCache = null;
+
+async function loadSymbolsList() {
+  const listEl = document.getElementById('symbolsList');
+  if (!listEl) return;
+  try {
+    const res = await fetch(`${API}/symbols`);
+    const json = await res.json();
+    if (!res.ok || !json.items) throw new Error(json.error || '목록 조회 실패');
+    symbolsListCache = json.items;
+    listEl.innerHTML = json.items.map((item) => {
+      const overriddenBadge = item.overridden ? '<span class="symbol-overridden-badge">변경됨</span>' : '';
+      const restoreBtn = item.overridden
+        ? `<button type="button" class="btn-secondary btn-sm btn-restore" data-id="${escapeHtml(item.id)}">원래대로</button>`
+        : '';
+      return `
+        <li class="symbols-list-item" data-id="${escapeHtml(item.id)}">
+          <span class="symbols-list-name">${escapeHtml(item.name)}</span>
+          <span class="symbols-list-symbol">${escapeHtml(item.symbol)}</span>
+          ${overriddenBadge}
+          <div class="symbols-list-actions">
+            <button type="button" class="btn-primary btn-sm btn-change" data-id="${escapeHtml(item.id)}" data-name="${escapeHtml(item.name)}" data-symbol="${escapeHtml(item.symbol)}">변경</button>
+            ${restoreBtn}
+          </div>
+        </li>
+      `;
+    }).join('');
+    listEl.querySelectorAll('.btn-change').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.id;
+        const name = btn.dataset.name;
+        const symbol = btn.dataset.symbol;
+        openSymbolChangePopup({ id, name, symbol });
+      });
+    });
+    listEl.querySelectorAll('.btn-restore').forEach((btn) => {
+      btn.addEventListener('click', () => restoreSymbolOverride(btn.dataset.id));
+    });
+  } catch (e) {
+    showErrorPopup('항목 목록 조회 실패', e.message);
+    listEl.innerHTML = '<li class="empty">목록을 불러올 수 없습니다.</li>';
+  }
+}
+
+let symbolChangeCurrentItem = null;
+let validatedSymbol = null;
+let validatedName = null;
+
+function openSymbolChangePopup(item) {
+  symbolChangeCurrentItem = item;
+  validatedSymbol = null;
+  validatedName = null;
+  document.getElementById('symbolChangeTitle').textContent = `다른 종목으로 변경: ${item.name}`;
+  document.getElementById('symbolChangeCurrent').textContent = `현재: ${item.name} (${item.symbol})`;
+  document.getElementById('symbolChangeInput').value = '';
+  document.getElementById('symbolValidateMessage').textContent = '';
+  document.getElementById('symbolValidateMessage').className = 'symbol-validate-message';
+  document.getElementById('symbolConfirmBlock').hidden = true;
+  document.getElementById('symbolChangeBtnConfirm').hidden = true;
+  document.getElementById('symbolChangePopup').classList.add('visible');
+  document.getElementById('symbolChangeInput').focus();
+}
+
+function hideSymbolChangePopup() {
+  document.getElementById('symbolChangePopup').classList.remove('visible');
+  symbolChangeCurrentItem = null;
+  validatedSymbol = null;
+  validatedName = null;
+}
+
+async function validateSymbolAndShow() {
+  const input = document.getElementById('symbolChangeInput').value.trim();
+  const msgEl = document.getElementById('symbolValidateMessage');
+  const confirmBlock = document.getElementById('symbolConfirmBlock');
+  const confirmInfo = document.getElementById('symbolConfirmInfo');
+  const btnConfirm = document.getElementById('symbolChangeBtnConfirm');
+  if (!input) {
+    msgEl.textContent = '심볼을 입력하세요.';
+    msgEl.className = 'symbol-validate-message error';
+    return;
+  }
+  msgEl.textContent = '확인 중...';
+  msgEl.className = 'symbol-validate-message';
+  confirmBlock.hidden = true;
+  btnConfirm.hidden = true;
+  try {
+    const res = await fetch(`${API}/symbols/validate?symbol=${encodeURIComponent(input)}`);
+    const json = await res.json();
+    if (!json.valid) {
+      msgEl.textContent = json.error || '종목을 찾을 수 없습니다.';
+      msgEl.className = 'symbol-validate-message error';
+      return;
+    }
+    validatedSymbol = json.symbol || input;
+    validatedName = json.name || input;
+    msgEl.textContent = `종목 확인됨: ${validatedName} (${validatedSymbol})`;
+    msgEl.className = 'symbol-validate-message success';
+    confirmInfo.textContent = `"${symbolChangeCurrentItem.name}" 항목을 "${validatedName}" (${validatedSymbol})로 변경합니다.`;
+    confirmBlock.hidden = false;
+    btnConfirm.hidden = false;
+  } catch (e) {
+    msgEl.textContent = e.message || '확인 중 오류가 발생했습니다.';
+    msgEl.className = 'symbol-validate-message error';
+  }
+}
+
+async function confirmSymbolOverride() {
+  if (!symbolChangeCurrentItem || !validatedSymbol) return;
+  const btnConfirm = document.getElementById('symbolChangeBtnConfirm');
+  btnConfirm.disabled = true;
+  try {
+    const res = await fetch(`${API}/symbols/override`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: symbolChangeCurrentItem.id,
+        symbol: validatedSymbol,
+        name: validatedName
+      })
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || '변경 실패');
+    hideSymbolChangePopup();
+    dailyCache.clear();
+    eventsCache.clear();
+    lastRenderedChartKey = null;
+    lastRenderedEventsKey = null;
+    loadSymbolsList();
+    loadTableData(true);
+    if (isTabActive('chart')) loadAllCharts();
+    if (isTabActive('events')) loadEvents(true);
+  } catch (e) {
+    showErrorPopup('항목 변경 실패', e.message);
+  } finally {
+    btnConfirm.disabled = false;
+  }
+}
+
+async function restoreSymbolOverride(id) {
+  try {
+    const res = await fetch(`${API}/symbols/override/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || '복원 실패');
+    dailyCache.clear();
+    eventsCache.clear();
+    lastRenderedChartKey = null;
+    lastRenderedEventsKey = null;
+    loadSymbolsList();
+    loadTableData(true);
+    if (isTabActive('chart')) loadAllCharts();
+    if (isTabActive('events')) loadEvents(true);
+  } catch (e) {
+    showErrorPopup('원래대로 복원 실패', e.message);
+  }
+}
+
+function initSymbolChangePopup() {
+  document.getElementById('symbolChangeClose').addEventListener('click', hideSymbolChangePopup);
+  document.getElementById('symbolChangeBtnCancel').addEventListener('click', hideSymbolChangePopup);
+  document.getElementById('symbolChangePopup').addEventListener('click', (e) => {
+    if (e.target.id === 'symbolChangePopup') hideSymbolChangePopup();
+  });
+  document.getElementById('symbolChangeBtnValidate').addEventListener('click', validateSymbolAndShow);
+  document.getElementById('symbolChangeBtnConfirm').addEventListener('click', confirmSymbolOverride);
+  document.getElementById('symbolChangeInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') validateSymbolAndShow();
   });
 }
 

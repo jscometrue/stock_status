@@ -8,13 +8,40 @@ const { items } = require('./config/symbols');
 
 const DATA_DIR = path.join(__dirname, 'data');
 const CACHE_FILE = path.join(DATA_DIR, 'daily-cache.json');
+const OVERRIDES_FILE = path.join(DATA_DIR, 'symbol-overrides.json');
 
 const app = express();
 app.disable('x-powered-by');
 const PORT = process.env.PORT || 3000;
 
-// 허용 심볼 화이트리스트 (외부 주입 방지)
-const SYMBOL_WHITELIST = new Set(items.map(i => i.symbol));
+// 항목별 심볼 오버라이드 (id -> { symbol, name? })
+let symbolOverrides = {};
+
+async function loadSymbolOverrides() {
+  try {
+    const buf = await fs.readFile(OVERRIDES_FILE, 'utf8');
+    const parsed = JSON.parse(buf);
+    if (parsed && typeof parsed === 'object') symbolOverrides = parsed;
+  } catch (e) {
+    if (e.code !== 'ENOENT') console.warn('심볼 오버라이드 로드 실패:', e.message);
+  }
+}
+
+function getEffectiveItems() {
+  return items.map((item) => {
+    const o = symbolOverrides[item.id];
+    if (o && o.symbol) {
+      return { ...item, symbol: o.symbol, name: o.name || item.name, overridden: true };
+    }
+    return { ...item, overridden: false };
+  });
+}
+
+// 허용 심볼: 기본 목록 + 오버라이드 반영
+function isSymbolAllowed(symbol) {
+  if (typeof symbol !== 'string') return false;
+  return getEffectiveItems().some((i) => i.symbol === symbol);
+}
 const MAX_RESPONSE_SIZE = 5 * 1024 * 1024; // 5MB
 const SAFE_NUM_MAX = 1e15;
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
@@ -49,11 +76,6 @@ function sanitizeDate(str) {
   const d = new Date(str);
   if (isNaN(d.getTime())) return null;
   return str;
-}
-
-// 심볼 화이트리스트 검증
-function isSymbolAllowed(symbol) {
-  return typeof symbol === 'string' && SYMBOL_WHITELIST.has(symbol);
 }
 
 // 날짜 유틸리티 (로컬 시간 기준)
@@ -177,6 +199,38 @@ async function fetchChartFromYahoo(symbol, period1, period2) {
     }
   }
   throw new Error('데이터 조회 실패');
+}
+
+// 심볼 검증용: 화이트리스트 없이 Yahoo에서 1일 차트 조회 후 meta 반환
+async function fetchYahooChartMeta(symbol) {
+  if (!symbol || typeof symbol !== 'string') throw new Error('심볼을 입력하세요');
+  const end = new Date();
+  const start = new Date(end);
+  start.setDate(start.getDate() - 5);
+  const t1 = toTimestamp(start);
+  const t2 = toTimestamp(end);
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?period1=${t1}&period2=${t2}&interval=1d&events=`;
+  const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+  const html = await new Promise((resolve, reject) => {
+    const req = https.get(url, { headers: { 'User-Agent': ua } }, (res) => {
+      let body = '';
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => (res.statusCode === 200 ? resolve(body) : reject(new Error(`HTTP ${res.statusCode}`))));
+    });
+    req.on('error', (e) => reject(e));
+    req.setTimeout(10000, () => { req.destroy(); reject(new Error('TIMEOUT')); });
+  });
+  const json = JSON.parse(html);
+  const chart = json?.chart?.result?.[0];
+  if (!chart || !Array.isArray(chart.timestamp) || chart.timestamp.length === 0) {
+    throw new Error('해당 종목 데이터를 찾을 수 없습니다');
+  }
+  const meta = chart.meta || {};
+  return {
+    symbol: meta.symbol || symbol,
+    shortName: meta.shortName || meta.longName || symbol,
+    longName: meta.longName || meta.shortName || symbol
+  };
 }
 
 // 일별 데이터 조회 (에러 시 빈 배열 반환, 에러 메시지 반환)
@@ -307,7 +361,7 @@ async function getMonthlyData(year, month, options = {}) {
 
   const { start, end } = getMonthRange(year, month);
   const rangeEnd = isCurrentMonth ? now : end;
-  const { results: raw, failed } = await fetchAllHistorical(items, start, rangeEnd);
+  const { results: raw, failed } = await fetchAllHistorical(getEffectiveItems(), start, rangeEnd);
 
   const results = {};
   for (const id of Object.keys(raw)) {
@@ -339,7 +393,7 @@ app.get('/api/daily/:year/:month', async (req, res) => {
       year: vm.year,
       month: vm.month,
       data,
-      items,
+      items: getEffectiveItems(),
       failed: failed.length > 0 ? failed : undefined
     });
   } catch (err) {
@@ -356,7 +410,7 @@ app.get('/api/chart/:symbol/:year/:month', async (req, res) => {
       return apiError(res, 400, '잘못된 날짜 범위', '년(2000~2100), 월(1~12)을 확인하세요');
     }
     const { symbol } = req.params;
-    const item = items.find(i => i.id === symbol || i.symbol === symbol);
+    const item = getEffectiveItems().find(i => i.id === symbol || i.symbol === symbol);
     const sym = item ? item.symbol : symbol;
     if (!isSymbolAllowed(sym)) {
       return apiError(res, 400, '허용되지 않은 항목', `항목을 선택해 주세요`);
@@ -387,7 +441,7 @@ app.get('/api/update/:year/:month', async (req, res) => {
       year: vm.year,
       month: vm.month,
       data,
-      items,
+      items: getEffectiveItems(),
       updatedAt: new Date().toISOString(),
       failed: failed.length > 0 ? failed : undefined
     });
@@ -644,7 +698,7 @@ app.get('/api/events/:year/:month', async (req, res) => {
     const monthEnd = formatYMD(end);
 
     const candidateEvents = [];
-    for (const item of items) {
+    for (const item of getEffectiveItems()) {
       const data = raw[item.id] || [];
       for (let i = 1; i < data.length; i++) {
         const prev = data[i - 1].close;
@@ -716,9 +770,72 @@ app.get('/api/news/:date', (req, res) => {
   res.json({ date, news: sampleNews });
 });
 
-// API: 심볼 목록
+// API: 심볼 목록 (오버라이드 반영)
 app.get('/api/symbols', (req, res) => {
-  res.json({ items });
+  res.json({ items: getEffectiveItems() });
+});
+
+// API: 심볼 검증 (Yahoo 존재 여부 + 종목 정보)
+app.get('/api/symbols/validate', async (req, res) => {
+  try {
+    const symbol = (req.query.symbol || '').trim().toUpperCase();
+    if (!symbol) {
+      return res.status(400).json({ success: false, valid: false, error: '심볼을 입력하세요' });
+    }
+    const meta = await fetchYahooChartMeta(symbol);
+    res.json({
+      success: true,
+      valid: true,
+      symbol: meta.symbol,
+      name: meta.shortName || meta.longName || meta.symbol
+    });
+  } catch (err) {
+    res.json({
+      success: true,
+      valid: false,
+      error: err.message || '종목을 확인할 수 없습니다'
+    });
+  }
+});
+
+// API: 항목을 다른 종목으로 변경 (오버라이드 저장)
+app.post('/api/symbols/override', async (req, res) => {
+  try {
+    const { id, symbol: newSymbol, name: newName } = req.body || {};
+    const sym = (newSymbol || '').trim();
+    if (!id || !sym) {
+      return res.status(400).json({ success: false, error: '항목 id와 변경할 심볼을 입력하세요' });
+    }
+    const base = items.find((i) => i.id === id);
+    if (!base) {
+      return res.status(400).json({ success: false, error: '존재하지 않는 항목입니다' });
+    }
+    const meta = await fetchYahooChartMeta(sym);
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    symbolOverrides[id] = { symbol: meta.symbol || sym, name: (newName || meta.shortName || meta.longName || sym).trim() };
+    await fs.writeFile(OVERRIDES_FILE, JSON.stringify(symbolOverrides, null, 2), 'utf8');
+    res.json({ success: true, items: getEffectiveItems() });
+  } catch (err) {
+    console.error('override API:', err);
+    res.status(400).json({ success: false, error: err.message || '변경에 실패했습니다' });
+  }
+});
+
+// API: 항목 오버라이드 제거 (원래 종목으로 복원)
+app.delete('/api/symbols/override/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!items.some((i) => i.id === id)) {
+      return res.status(400).json({ success: false, error: '존재하지 않는 항목입니다' });
+    }
+    delete symbolOverrides[id];
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    await fs.writeFile(OVERRIDES_FILE, JSON.stringify(symbolOverrides, null, 2), 'utf8');
+    res.json({ success: true, items: getEffectiveItems() });
+  } catch (err) {
+    console.error('override delete API:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 app.get('*', (req, res) => {
@@ -727,6 +844,7 @@ app.get('*', (req, res) => {
 
 async function start() {
   await loadDailyCacheFromFile();
+  await loadSymbolOverrides();
   app.listen(PORT, () => {
     console.log(`서버 실행: http://localhost:${PORT}`);
   });

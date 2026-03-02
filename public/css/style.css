@@ -372,6 +372,109 @@ main {
   color: var(--text-muted);
 }
 
+/* 항목 관리 탭 */
+.symbols-header {
+  margin-bottom: 1rem;
+}
+.symbols-hint {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+.symbols-list-wrap {
+  max-width: 640px;
+}
+.symbols-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.symbols-list-item {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.symbols-list-name {
+  font-weight: 600;
+  min-width: 140px;
+}
+.symbols-list-symbol {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-family: ui-monospace, monospace;
+}
+.symbol-overridden-badge {
+  font-size: 0.7rem;
+  padding: 0.15rem 0.4rem;
+  background: var(--border);
+  color: var(--text-muted);
+  border-radius: 4px;
+}
+.symbols-list-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 0.4rem;
+}
+.btn-sm { font-size: 0.8rem; padding: 0.3rem 0.6rem; }
+
+/* 항목 변경 팝업 */
+.symbol-change-current {
+  margin-bottom: 1rem !important;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+.symbol-change-label {
+  display: block;
+  font-size: 0.85rem;
+  margin-bottom: 0.35rem;
+  color: var(--text-muted);
+}
+.symbol-change-input {
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  margin-bottom: 0.75rem;
+  font-size: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  box-sizing: border-box;
+}
+.symbol-validate-message {
+  font-size: 0.9rem;
+  margin-bottom: 0.75rem;
+  min-height: 1.4em;
+}
+.symbol-validate-message.error { color: var(--down); }
+.symbol-validate-message.success { color: var(--up); }
+.symbol-confirm-block {
+  padding: 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 1rem;
+}
+.symbol-confirm-block p { margin-bottom: 0.35rem !important; }
+.symbol-confirm-block p:last-child { margin-bottom: 0 !important; }
+.symbol-confirm-question {
+  font-weight: 600;
+  margin-top: 0.5rem !important;
+}
+.popup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+.symbol-change-popup .popup-header h3 { color: var(--text); }
+
 /* 에러 팝업 */
 .popup-overlay {
   display: none;
