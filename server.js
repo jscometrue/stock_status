@@ -402,15 +402,20 @@ app.get('/api/daily/:year/:month', async (req, res) => {
   }
 });
 
-// API: 최근 N일 일별 데이터 (기본 30일, 캐시 파일 사용하지 않음)
+// API: 최근 N일 일별 데이터 (기본 30일, 오늘 기준 이전 N일: 어제까지)
 app.get('/api/daily/recent/:days?', async (req, res) => {
   try {
     const rawDays = parseInt(req.params.days || '30', 10);
     const days = isNaN(rawDays) ? 30 : Math.min(Math.max(rawDays, 1), 365);
-    const now = new Date();
-    const end = now;
+
+    // 오늘 0시 기준으로 어제까지 N일 구간 계산
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const end = new Date(today);
+    end.setDate(today.getDate() - 1); // 어제
     const start = new Date(end);
     start.setDate(end.getDate() - (days - 1));
+
     const from = formatYMD(start);
     const to = formatYMD(end);
 
