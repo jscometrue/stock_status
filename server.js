@@ -403,7 +403,8 @@ app.get('/api/daily/:year/:month', async (req, res) => {
 });
 
 // API: 최근 N일 일별 데이터 (기본 30일, 오늘 기준 이전 N일: 어제까지)
-app.get('/api/daily/recent/:days?', async (req, res) => {
+// 기존 /api/daily/:year/:month 라우트와 경로 충돌을 피하기 위해 daily_recent로 분리
+app.get('/api/daily_recent/:days?', async (req, res) => {
   try {
     const rawDays = parseInt(req.params.days || '30', 10);
     const days = isNaN(rawDays) ? 30 : Math.min(Math.max(rawDays, 1), 365);

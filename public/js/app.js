@@ -431,7 +431,7 @@ async function loadRecentCharts(forceRefresh = false) {
   recentChartRequestToken = token;
 
   try {
-    const res = await fetch(`${API}/daily/recent/${days}`);
+    const res = await fetch(`${API}/daily_recent/${days}`);
     let json;
     try {
       json = await res.json();
