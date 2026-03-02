@@ -775,22 +775,71 @@ app.get('/api/symbols', (req, res) => {
   res.json({ items: getEffectiveItems() });
 });
 
-// Yahoo Finance 종목 검색 (이름 또는 심볼로 유사 항목 검색)
-async function searchYahooSymbols(query) {
+// 한글 종목명 → Yahoo 검색용 영문/심볼 fallback (한글 검색 4xx 시 재시도)
+const SEARCH_FALLBACK_KO = {
+  '삼성전자': 'Samsung Electronics',
+  '삼성전자주식': 'Samsung Electronics',
+  '현대자동차': 'Hyundai Motor',
+  '현대차': 'Hyundai Motor',
+  'sk하이닉스': 'SK Hynix',
+  '엔비디아': 'NVIDIA',
+  '앤비디아': 'NVIDIA',
+  '애플': 'Apple',
+  '테슬라': 'Tesla',
+  '네이버': 'Naver',
+  '카카오': 'Kakao',
+  'lg에너지솔루션': 'LG Energy Solution',
+  '기아': 'Kia',
+  '삼성바이오로직스': 'Samsung Biologics',
+  '삼성sdi': 'Samsung SDI',
+  '삼성엔지니어링': 'Samsung E&C',
+  'kb금융': 'KB Financial',
+  '신한지주': 'Shinhan Financial',
+  '포스코홀딩스': 'POSCO Holdings',
+  '셀트리온': 'Celltrion',
+  '삼성생명': 'Samsung Life Insurance',
+  '한국전력': 'Korea Electric Power',
+  'lg전자': 'LG Electronics',
+  '삼성물산': 'Samsung C&T',
+  'naver': 'Naver',
+  'kakao': 'Kakao'
+};
+
+function normalizeSearchFallbackKey(str) {
+  return (str || '').trim().replace(/\s+/g, '').toLowerCase();
+}
+
+async function fetchYahooSearch(query) {
   const q = (query || '').trim();
-  if (!q || q.length < 2) return [];
+  if (!q) return [];
   const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=15&newsCount=0`;
   const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+  const maxBody = 512 * 1024;
   const html = await new Promise((resolve, reject) => {
     const req = https.get(url, { headers: { 'User-Agent': ua } }, (res) => {
+      if (res.statusCode !== 200) {
+        res.resume();
+        return reject(new Error(`HTTP ${res.statusCode}`));
+      }
       let body = '';
-      res.on('data', (chunk) => { body += chunk; });
-      res.on('end', () => (res.statusCode === 200 ? resolve(body) : reject(new Error(`HTTP ${res.statusCode}`))));
+      res.on('data', (chunk) => {
+        body += chunk;
+        if (body.length > maxBody) {
+          req.destroy();
+          reject(new Error('응답 크기 초과'));
+        }
+      });
+      res.on('end', () => resolve(body));
     });
     req.on('error', reject);
-    req.setTimeout(8000, () => { req.destroy(); reject(new Error('TIMEOUT')); });
+    req.setTimeout(10000, () => { req.destroy(); reject(new Error('TIMEOUT')); });
   });
-  const json = JSON.parse(html);
+  let json;
+  try {
+    json = JSON.parse(html);
+  } catch {
+    return [];
+  }
   const quotes = json?.quotes || [];
   return quotes
     .filter((x) => x.symbol && (x.shortname || x.longname))
@@ -801,7 +850,30 @@ async function searchYahooSymbols(query) {
     }));
 }
 
-// API: 종목 검색 (이름 또는 코드로 유사 항목 조회)
+// Yahoo Finance 종목 검색 (한글 입력 시 fallback으로 영문 재시도)
+async function searchYahooSymbols(query) {
+  const q = (query || '').trim();
+  if (!q || q.length < 2) return [];
+  let list = [];
+  try {
+    list = await fetchYahooSearch(q);
+  } catch (err) {
+    console.warn('symbol search first try:', err.message);
+  }
+  if (list.length > 0) return list;
+  const key = normalizeSearchFallbackKey(q);
+  const fallback = key && SEARCH_FALLBACK_KO[key];
+  if (fallback) {
+    try {
+      list = await fetchYahooSearch(fallback);
+    } catch (e) {
+      console.warn('symbol search fallback:', e.message);
+    }
+  }
+  return list;
+}
+
+// API: 종목 검색 (이름 또는 코드로 유사 항목 조회) — 항상 200, 404 미반환
 app.get('/api/symbols/search', async (req, res) => {
   try {
     const q = (req.query.q || req.query.query || '').trim();
