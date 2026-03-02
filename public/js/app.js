@@ -49,6 +49,37 @@ const calcMonthChangePct = (series) => {
   return ((last - first) / first) * 100;
 };
 
+// RSI(2): 2일 기준 상대강도지수 (최근 3일 종가로 마지막 RSI 계산)
+function calcRSI2(closes) {
+  if (!Array.isArray(closes) || closes.length < 3) return null;
+  const n = closes.length;
+  const c0 = Number(closes[n - 3]);
+  const c1 = Number(closes[n - 2]);
+  const c2 = Number(closes[n - 1]);
+  if (!Number.isFinite(c0) || !Number.isFinite(c1) || !Number.isFinite(c2)) return null;
+  const ch1 = c1 - c0;
+  const ch2 = c2 - c1;
+  const gain1 = ch1 > 0 ? ch1 : 0;
+  const loss1 = ch1 < 0 ? -ch1 : 0;
+  const gain2 = ch2 > 0 ? ch2 : 0;
+  const loss2 = ch2 < 0 ? -ch2 : 0;
+  const avgGain = (gain1 + gain2) / 2;
+  const avgLoss = (loss1 + loss2) / 2;
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return 100 - 100 / (1 + rs);
+}
+
+// RSI(2) 기준 매매 신호 (정리된 전략: 10/30/70/90)
+function getRSISignal(rsi) {
+  if (rsi == null || !Number.isFinite(rsi)) return { label: null, className: 'rsi-neutral' };
+  if (rsi <= 10) return { label: '강력매수', className: 'rsi-strong-buy' };
+  if (rsi < 30) return { label: '매수', className: 'rsi-buy' };
+  if (rsi >= 90) return { label: '강력매도', className: 'rsi-strong-sell' };
+  if (rsi > 70) return { label: '매도', className: 'rsi-sell' };
+  return { label: '보합', className: 'rsi-neutral' };
+}
+
 // 에러 팝업 표시
 function showErrorPopup(title, message, cause) {
   const overlay = document.getElementById('errorPopup');
@@ -412,11 +443,19 @@ function renderChartsFromData(json, { force = false } = {}) {
     const fillColor = useYellow ? 'rgba(210, 153, 34, 0.1)' : (useRed ? 'rgba(248, 81, 73, 0.1)' : 'rgba(88, 166, 255, 0.1)');
     const changeClass = monthChangePct > 0 ? 'positive' : monthChangePct < 0 ? 'negative' : 'neutral';
     const safeName = escapeHtml(item.name);
+    const rsi = calcRSI2(closes);
+    const signal = getRSISignal(rsi);
+    const rsiText = rsi != null ? `RSI(2) ${rsi.toFixed(1)}` : 'RSI -';
+    const signalHtml = signal.label
+      ? `<span class="rsi-signal ${signal.className}">${escapeHtml(signal.label)}</span>`
+      : '';
     const card = document.createElement('div');
     card.className = 'chart-card';
     card.innerHTML = `
       <div class="chart-card-title">
         <span class="chart-card-name" title="${safeName}">${safeName}</span>
+        ${signalHtml}
+        <span class="chart-rsi" title="2일 RSI">${escapeHtml(rsiText)}</span>
         <span class="chart-card-change ${changeClass}">${formatChangePct(monthChangePct)}</span>
       </div>
       <canvas id="chart-${idx}"></canvas>

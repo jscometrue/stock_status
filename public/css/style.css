@@ -279,6 +279,25 @@ main {
 .chart-card-change.negative { color: var(--down); }
 .chart-card-change.neutral { color: var(--text-muted); }
 
+.chart-rsi {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.rsi-signal {
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.rsi-signal.rsi-strong-buy { background: rgba(46, 160, 67, 0.25); color: #3fb950; }
+.rsi-signal.rsi-buy { background: rgba(46, 160, 67, 0.15); color: #7ee787; }
+.rsi-signal.rsi-neutral { background: var(--border); color: var(--text-muted); }
+.rsi-signal.rsi-sell { background: rgba(248, 81, 73, 0.15); color: #ff7b72; }
+.rsi-signal.rsi-strong-sell { background: rgba(248, 81, 73, 0.25); color: #f85149; }
+
 .chart-card canvas {
   width: 100% !important;
   height: 140px !important;
