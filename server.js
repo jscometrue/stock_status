@@ -402,6 +402,41 @@ app.get('/api/daily/:year/:month', async (req, res) => {
   }
 });
 
+// API: 최근 N일 일별 데이터 (기본 30일, 캐시 파일 사용하지 않음)
+app.get('/api/daily/recent/:days?', async (req, res) => {
+  try {
+    const rawDays = parseInt(req.params.days || '30', 10);
+    const days = isNaN(rawDays) ? 30 : Math.min(Math.max(rawDays, 1), 365);
+    const now = new Date();
+    const end = now;
+    const start = new Date(end);
+    start.setDate(end.getDate() - (days - 1));
+    const from = formatYMD(start);
+    const to = formatYMD(end);
+
+    const { results: raw, failed } = await fetchAllHistorical(getEffectiveItems(), start, end);
+    const data = {};
+    for (const id of Object.keys(raw)) {
+      data[id] = (raw[id] || [])
+        .filter(d => sanitizeDate(d.date) && d.date >= from && d.date <= to)
+        .sort((a, b) => a.date.localeCompare(b.date));
+    }
+
+    res.json({
+      success: true,
+      from,
+      to,
+      days,
+      data,
+      items: getEffectiveItems(),
+      failed: failed.length > 0 ? failed : undefined
+    });
+  } catch (err) {
+    console.error('daily recent API:', err);
+    apiError(res, 500, '최근 일별 데이터 조회 중 오류 발생', err.message);
+  }
+});
+
 // API: 특정 심볼 월별 데이터 (차트용)
 app.get('/api/chart/:symbol/:year/:month', async (req, res) => {
   try {
@@ -449,325 +484,6 @@ app.get('/api/update/:year/:month', async (req, res) => {
     console.error('update API:', err);
     apiError(res, 500, '업데이트 중 오류 발생', err.message);
   }
-});
-
-// 뉴스 조회 (Finnhub) - 해당 항목 상승/하락 이유를 설명한 뉴스가 있을 때만 이벤트 포함
-const newsCache = new Map();
-const NEWS_CACHE_TTL = 30 * 60 * 1000; // 30분
-
-async function fetchNewsForSymbol(symbol, fromDate, toDate, opts = {}) {
-  const { skipCache = false } = opts;
-  const key = `${symbol}:${fromDate}:${toDate}`;
-  const cached = newsCache.get(key);
-  if (!skipCache && cached && cached.expires > Date.now()) return cached.data;
-
-  const apiKey = process.env.FINNHUB_API_KEY;
-  if (!apiKey) return [];
-
-  const today = formatYMD(new Date());
-  const toDateCapped = toDate > today ? today : toDate;
-  const fromTs = Math.floor(new Date(fromDate + 'T00:00:00Z').getTime() / 1000);
-  const toTs = Math.floor(new Date(toDateCapped + 'T23:59:59Z').getTime() / 1000);
-  const url = `https://finnhub.io/api/v1/company-news?symbol=${encodeURIComponent(symbol)}&from=${fromTs}&to=${toTs}&token=${apiKey}`;
-
-  try {
-    const body = await new Promise((resolve, reject) => {
-      https.get(url, (res) => {
-        let data = '';
-        res.on('data', c => data += c);
-        res.on('end', () => resolve(data));
-      }).on('error', reject);
-    });
-    const parsed = JSON.parse(body || '[]');
-    if (!Array.isArray(parsed)) {
-      if (parsed && parsed.error) console.warn(`[Finnhub ${symbol}]`, parsed.error);
-      return [];
-    }
-    const result = parsed.map(n => ({
-      date: n.datetime ? new Date(n.datetime * 1000).toISOString().slice(0, 10) : null,
-      headline: (n.headline || '').substring(0, 500)
-    })).filter(n => n.date);
-    newsCache.set(key, { data: result, expires: Date.now() + NEWS_CACHE_TTL });
-    return result;
-  } catch (err) {
-    console.warn(`[뉴스 ${symbol}]`, err.message);
-    return [];
-  }
-}
-
-function findNewsForDate(newsList, eventDate) {
-  if (!newsList || newsList.length === 0) return null;
-  return newsList.find(n => n.date === eventDate || isAdjacentDate(n.date, eventDate)) || null;
-}
-
-const US_MARKET_NEWS_SYMBOLS = ['AAPL', 'NVDA', 'SPY', 'MSFT'];
-
-function parseNewsItem(n) {
-  const ts = n.datetime ?? n.publishedDate ?? n.date ?? n.time;
-  const head = n.headline ?? n.title ?? n.summary ?? '';
-  if (!head) return null;
-  let sec = 0;
-  if (typeof ts === 'number' && Number.isFinite(ts)) {
-    sec = ts < 1e12 ? ts : Math.floor(ts / 1000);
-  } else if (ts != null && ts !== '') {
-    const t = new Date(ts).getTime();
-    if (!Number.isFinite(t)) return null;
-    sec = Math.floor(t / 1000);
-  } else {
-    return null;
-  }
-  const dt = new Date(sec * 1000);
-  if (!Number.isFinite(dt.getTime())) return null;
-  const dateStr = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
-  return { date: dateStr, headline: String(head).substring(0, 500) };
-}
-
-async function fetchMarketNews(fromDate, toDate, opts = {}) {
-  const { skipCache = false } = opts;
-  const key = `market:${fromDate}:${toDate}`;
-  const cached = newsCache.get(key);
-  if (!skipCache && cached && cached.expires > Date.now()) return cached.data;
-
-  const apiKey = process.env.FINNHUB_API_KEY;
-  if (!apiKey) return [];
-
-  const today = formatYMD(new Date());
-  const toDateCapped = toDate > today ? today : toDate;
-  const fromTs = Math.floor(new Date(fromDate + 'T00:00:00Z').getTime() / 1000);
-  const toTs = Math.floor(new Date(toDateCapped + 'T23:59:59Z').getTime() / 1000);
-
-  const allNews = [];
-
-  const tryMarketNews = async (path = 'market-news') => {
-    try {
-      const url = `https://finnhub.io/api/v1/${path}?category=general&token=${apiKey}`;
-      const body = await new Promise((resolve, reject) => {
-        https.get(url, (res) => {
-          let data = '';
-          res.on('data', c => data += c);
-          res.on('end', () => resolve(data));
-        }).on('error', reject);
-      });
-      const parsed = JSON.parse(body || '[]');
-      if (!Array.isArray(parsed)) return;
-      for (const n of parsed) {
-        const item = parseNewsItem(n);
-        if (item) {
-          if (item.date >= fromDate && item.date <= toDateCapped) {
-            allNews.push(item);
-          }
-        }
-      }
-    } catch (err) {
-      console.warn('[Finnhub market-news]', err.message);
-    }
-  };
-
-  await tryMarketNews('market-news');
-  if (allNews.length === 0) await tryMarketNews('news');
-
-  if (allNews.length === 0) {
-    for (const symbol of US_MARKET_NEWS_SYMBOLS) {
-      try {
-        const url = `https://finnhub.io/api/v1/company-news?symbol=${encodeURIComponent(symbol)}&from=${fromTs}&to=${toTs}&token=${apiKey}`;
-        const body = await new Promise((resolve, reject) => {
-          https.get(url, (res) => {
-            let data = '';
-            res.on('data', c => data += c);
-            res.on('end', () => resolve(data));
-          }).on('error', reject);
-        });
-        const parsed = JSON.parse(body || '[]');
-        if (!Array.isArray(parsed)) {
-          if (parsed && parsed.error) console.warn(`[Finnhub ${symbol}]`, parsed.error);
-          continue;
-        }
-        for (const n of parsed) {
-          const item = parseNewsItem(n);
-          if (item) allNews.push(item);
-        }
-        await delay(150);
-      } catch (err) {
-        console.warn(`[미국시장 뉴스 ${symbol}]`, err.message);
-      }
-    }
-  }
-
-  const seen = new Set();
-  const result = allNews.filter(n => {
-    const k = `${n.date}:${n.headline}`;
-    if (seen.has(k)) return false;
-    seen.add(k);
-    return true;
-  });
-  newsCache.set(key, { data: result, expires: Date.now() + NEWS_CACHE_TTL });
-  if (result.length > 0) console.log(`[뉴스] ${fromDate}~${toDateCapped}: ${result.length}건`);
-  return result;
-}
-
-function buildMarketNewsByDate(marketNewsList) {
-  const byDate = new Map();
-  if (!marketNewsList || marketNewsList.length === 0) return byDate;
-  for (const n of marketNewsList) {
-    if (!byDate.has(n.date)) byDate.set(n.date, []);
-    byDate.get(n.date).push(n.headline);
-  }
-  return byDate;
-}
-
-function getMarketHeadlineForDate(marketByDate, eventDate) {
-  const exact = marketByDate.get(eventDate);
-  if (exact && exact.length > 0) return exact[0];
-  let best = null;
-  let bestDiff = Infinity;
-  const maxDays = 14;
-  for (const [d, headlines] of marketByDate) {
-    if (headlines.length === 0) continue;
-    const diff = Math.abs(new Date(d).getTime() - new Date(eventDate).getTime()) / (24 * 60 * 60 * 1000);
-    if (diff <= maxDays && diff < bestDiff) {
-      best = headlines[0];
-      bestDiff = diff;
-    }
-  }
-  return best;
-}
-
-function isAdjacentDate(d1, d2) {
-  const a = new Date(d1).getTime();
-  const b = new Date(d2).getTime();
-  const diff = Math.abs(a - b) / (24 * 60 * 60 * 1000);
-  return diff <= 2;
-}
-
-// 과거 추이·향후 시장 분석 기반 매도 시점 경고 메시지 생성
-function getSellTimingWarning(data, evtDate, changePct, type) {
-  if (!data || data.length < 2) return '-';
-  const sorted = [...data].sort((a, b) => a.date.localeCompare(b.date));
-  const closes = sorted.map(d => d.close).filter(v => v != null);
-  if (closes.length < 2) return '-';
-
-  const idx = sorted.findIndex(d => d.date === evtDate);
-  if (idx < 0 || idx >= closes.length) return '-';
-
-  const curr = closes[idx];
-  const monthFirst = closes[0];
-  const monthHigh = Math.max(...closes.slice(0, idx + 1));
-  const monthLow = Math.min(...closes.slice(0, idx + 1));
-
-  let consecDown = 0;
-  for (let i = idx; i >= 1; i--) {
-    if (closes[i] < closes[i - 1]) consecDown++; else break;
-  }
-
-  const cumulChange = ((curr - monthFirst) / monthFirst) * 100;
-  const fromHigh = ((curr - monthHigh) / monthHigh) * 100;
-
-  const isDrop = type === '하락';
-  const isRise = type === '상승';
-
-  if (isDrop) {
-    if (changePct <= -7 && consecDown >= 2) return '⚠ 급락 구간 - 즉시 매도 검토 권고';
-    if (changePct <= -5 && consecDown >= 2) return '⚠ 하락 추세 지속 - 매도 시점 검토 권고';
-    if (cumulChange <= -5 && fromHigh <= -5) return '⚠ 월간 손실 확대 - 손절 포인트 검토';
-    if (consecDown >= 3) return '△ 연속 하락 - 관망 또는 분할 매도 고려';
-    if (changePct <= -5) return '△ 단기 급락 - 추가 하락 시 매도 검토';
-    if (cumulChange <= -3) return '△ 월 누적 하락 - 보유 비중 점검';
-    return '○ 변동성 확대 - 시장 모니터링';
-  }
-
-  if (isRise) {
-    if (changePct >= 7) return '○ 급등 - 일부 익절 검토';
-    if (fromHigh >= -1 && changePct >= 5) return '○ 고점 근접 - 수익 실현 고려';
-    return '○ 상승 지속 - 보유 유지';
-  }
-
-  return '-';
-}
-
-// API: 이벤트/뉴스 - 상승/하락 이유를 설명한 뉴스가 있는 경우만 포함 (캐시 사용, ?refresh=1 시 최신 반영)
-app.get('/api/events/:year/:month', async (req, res) => {
-  try {
-    const vm = validateYearMonth(req.params.year, req.params.month);
-    if (!vm) {
-      return apiError(res, 400, '잘못된 날짜 범위', '년(2000~2100), 월(1~12)을 확인하세요');
-    }
-    const forceRefresh = req.query.refresh === '1';
-    const { data: raw, failed } = await getMonthlyData(vm.year, vm.month, { forceRefresh });
-    const { start, end } = getMonthRange(vm.year, vm.month);
-    const monthStart = formatYMD(start);
-    const monthEnd = formatYMD(end);
-
-    const candidateEvents = [];
-    for (const item of getEffectiveItems()) {
-      const data = raw[item.id] || [];
-      for (let i = 1; i < data.length; i++) {
-        const prev = data[i - 1].close;
-        const curr = data[i].close;
-        if (prev == null || curr == null || prev === 0) continue;
-        const changePct = ((curr - prev) / prev) * 100;
-        if (Math.abs(changePct) >= 3) {
-          candidateEvents.push({
-            date: data[i].date,
-            item: item.name,
-            itemObj: item,
-            change: changePct,
-            type: changePct > 0 ? '상승' : '하락',
-            description: `${item.name} 전일대비 ${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%`
-          });
-        }
-      }
-    }
-
-    const marketNews = await fetchMarketNews(monthStart, monthEnd, { skipCache: forceRefresh });
-    const marketByDate = buildMarketNewsByDate(marketNews);
-
-    const events = [];
-    for (const ev of candidateEvents) {
-      const newsSym = ev.itemObj.newsSymbol;
-      if (!newsSym) continue;
-      const marketHeadline = getMarketHeadlineForDate(marketByDate, ev.date);
-      const itemData = raw[ev.itemObj.id] || [];
-      const sellWarning = getSellTimingWarning(itemData, ev.date, ev.change, ev.type);
-      events.push({
-        date: ev.date,
-        item: ev.item,
-        change: ev.change,
-        type: ev.type,
-        description: ev.description,
-        newsHeadline: marketHeadline,
-        sellWarning
-      });
-    }
-
-    const byDate = {};
-    events.forEach(e => {
-      if (!byDate[e.date]) byDate[e.date] = [];
-      byDate[e.date].push(e);
-    });
-
-    res.json({
-      success: true,
-      year: vm.year,
-      month: vm.month,
-      events: byDate,
-      failed: failed.length > 0 ? failed : undefined,
-      newsFilterApplied: false
-    });
-  } catch (err) {
-    console.error('events API:', err);
-    apiError(res, 500, '이벤트 조회 중 오류 발생', err.message);
-  }
-});
-
-// API: 뉴스 (샘플 - 실제 뉴스 API 연동 시 교체)
-app.get('/api/news/:date', (req, res) => {
-  const { date } = req.params;
-  // 샘플 뉴스 - 실제로는 뉴스 API 사용
-  const sampleNews = [
-    { date, title: '미국 Fed 금리 결정 관련 시장 주목', source: 'Sample', type: 'market' },
-    { date, title: '한국증시, 외국인 매수 지속', source: 'Sample', type: 'korea' },
-  ];
-  res.json({ date, news: sampleNews });
 });
 
 // API: 심볼 목록 (오버라이드 반영)

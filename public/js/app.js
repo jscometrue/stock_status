@@ -1,13 +1,14 @@
 const API = '/api';
 let currentData = null;
 let priceCharts = [];
+let recentCharts = [];
 const makePeriodKey = (year, month) => `${year}-${String(month).padStart(2, '0')}`;
 const dailyCache = new Map();
-const eventsCache = new Map();
+const recentDailyCache = new Map();
 let lastRenderedChartKey = null;
-let lastRenderedEventsKey = null;
+let lastRenderedRecentKey = null;
 let chartRequestToken = null;
-let eventsRequestToken = null;
+let recentChartRequestToken = null;
 
 // XSS 방지: HTML 이스케이프
 function escapeHtml(str) {
@@ -120,7 +121,6 @@ function initSelectors() {
     currentMonth = parseInt(monthSelect.value);
     loadTableData();
     if (isTabActive('chart')) loadAllCharts();
-    if (isTabActive('events')) loadEvents(false);
   };
 
   yearSelect.addEventListener('change', onPeriodChange);
@@ -135,7 +135,7 @@ function initTabs() {
       t.classList.add('active');
       document.getElementById(`tab-${t.dataset.tab}`).classList.add('active');
       if (t.dataset.tab === 'chart') loadAllCharts();
-      if (t.dataset.tab === 'events') loadEvents();
+      if (t.dataset.tab === 'chart2') loadRecentCharts();
       if (t.dataset.tab === 'symbols') loadSymbolsList();
     });
   });
@@ -144,7 +144,7 @@ function initTabs() {
 function initButtons() {
   document.getElementById('btnUpdate').addEventListener('click', () => {
     loadTableData(true);
-    if (isTabActive('events')) loadEvents(true);
+    if (isTabActive('chart2')) loadRecentCharts(true);
   });
   document.getElementById('btnViewData').addEventListener('click', showDataViewer);
   document.getElementById('btnDownloadData').addEventListener('click', downloadTableAsExcel);
@@ -408,6 +408,56 @@ async function loadAllCharts() {
   }
 }
 
+async function loadRecentCharts(forceRefresh = false) {
+  const grid = document.getElementById('chartsGridRecent');
+  if (!grid) return;
+  const days = 30;
+  const key = `recent-${days}`;
+  const cached = recentDailyCache.get(key);
+  const alreadyShowing = lastRenderedRecentKey === key && grid.children.length > 0;
+
+  if (forceRefresh) {
+    recentDailyCache.delete(key);
+    grid.innerHTML = '<div class="loading" style="grid-column:1/-1">차트 로딩 중...</div>';
+  } else if (!alreadyShowing) {
+    if (cached) {
+      renderRecentChartsFromData(cached);
+    } else {
+      grid.innerHTML = '<div class="loading" style="grid-column:1/-1">차트 로딩 중...</div>';
+    }
+  }
+
+  const token = `${key}-${Date.now()}`;
+  recentChartRequestToken = token;
+
+  try {
+    const res = await fetch(`${API}/daily/recent/${days}`);
+    let json;
+    try {
+      json = await res.json();
+    } catch {
+      throw new Error(res.ok ? '응답 형식 오류' : `서버 오류 (${res.status})`);
+    }
+    if (!res.ok || json.success === false) {
+      showErrorPopup('차트2 데이터 조회 실패', json?.error || '알 수 없는 오류', json?.cause);
+      if (!cached && !alreadyShowing) {
+        grid.innerHTML = '<div class="empty" style="grid-column:1/-1">데이터를 불러올 수 없습니다.</div>';
+      }
+      return;
+    }
+
+    const responseKey = `recent-${json.days || days}`;
+    recentDailyCache.set(responseKey, json);
+    if (recentChartRequestToken !== token || responseKey !== key) return;
+    renderRecentChartsFromData(json, { force: true });
+  } catch (e) {
+    showErrorPopup('차트2 로드 오류', e.message, e.message.includes('fetch') ? '서버 연결을 확인하세요.' : null);
+    if (!cached && !alreadyShowing) {
+      grid.innerHTML = '<div class="empty" style="grid-column:1/-1">데이터를 불러올 수 없습니다.</div>';
+    }
+  }
+}
+
 function renderChartsFromData(json, { force = false } = {}) {
   const key = makePeriodKey(json.year, json.month);
   if (!force && lastRenderedChartKey === key) return;
@@ -499,6 +549,100 @@ function renderChartsFromData(json, { force = false } = {}) {
       }
     });
     priceCharts.push(chart);
+  });
+}
+
+function renderRecentChartsFromData(json, { force = false } = {}) {
+  const key = `recent-${json.days || 30}`;
+  if (!force && lastRenderedRecentKey === key) return;
+  lastRenderedRecentKey = key;
+
+  const grid = document.getElementById('chartsGridRecent');
+  recentCharts.forEach(c => c?.destroy());
+  recentCharts = [];
+  grid.innerHTML = '';
+
+  const { data, items } = json;
+  const RED = '#f85149';
+  const YELLOW = '#d29922';
+  const BLUE = '#58a6ff';
+
+  items.forEach((item, idx) => {
+    const arr = (data[item.id] || []).sort((a, b) => a.date.localeCompare(b.date));
+    const closes = arr.map(d => d.close).filter(v => v != null);
+
+    const dropFromHighPct = calcDropFromHighPct(closes);
+    const currentConsecDown = getCurrentConsecDownDays(closes);
+    const periodChangePct = calcMonthChangePct(closes);
+
+    let useRed = false;
+    let useYellow = false;
+    if (closes.length >= 1) {
+      if (dropFromHighPct <= -5) {
+        useYellow = true;
+      } else if (currentConsecDown >= 2 || dropFromHighPct <= -3) {
+        useRed = true;
+      }
+    }
+
+    const lineColor = useYellow ? YELLOW : (useRed ? RED : BLUE);
+    const fillColor = useYellow ? 'rgba(210, 153, 34, 0.1)' : (useRed ? 'rgba(248, 81, 73, 0.1)' : 'rgba(88, 166, 255, 0.1)');
+    const changeClass = periodChangePct > 0 ? 'positive' : periodChangePct < 0 ? 'negative' : 'neutral';
+    const safeName = escapeHtml(item.name);
+    const rsi = calcRSI2(closes);
+    const signal = getRSISignal(rsi);
+    const rsiText = rsi != null ? `RSI(2) ${rsi.toFixed(1)}` : 'RSI -';
+    const signalHtml = signal.label
+      ? `<span class="rsi-signal ${signal.className}">${escapeHtml(signal.label)}</span>`
+      : '';
+    const card = document.createElement('div');
+    card.className = 'chart-card';
+    card.innerHTML = `
+      <div class="chart-card-title">
+        <span class="chart-card-name" title="${safeName}">${safeName}</span>
+        ${signalHtml}
+        <span class="chart-rsi" title="2일 RSI (최근 30일 기준)">${escapeHtml(rsiText)}</span>
+        <span class="chart-card-change ${changeClass}">${formatChangePct(periodChangePct)}</span>
+      </div>
+      <canvas id="chart2-${idx}"></canvas>
+    `;
+    grid.appendChild(card);
+
+    const ctx = document.getElementById(`chart2-${idx}`).getContext('2d');
+    const chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: arr.map(d => d.date),
+        datasets: [{
+          label: item.name,
+          data: arr.map(d => d.close),
+          borderColor: lineColor,
+          backgroundColor: fillColor,
+          fill: true,
+          tension: 0.2,
+          pointRadius: 0,
+          pointHoverRadius: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false }
+        },
+        scales: {
+          x: {
+            grid: { color: '#30363d', display: false },
+            ticks: { color: '#8b949e', maxTicksLimit: 4, font: { size: 9 } }
+          },
+          y: {
+            grid: { color: '#30363d' },
+            ticks: { color: '#8b949e', maxTicksLimit: 3, font: { size: 9 } }
+          }
+        }
+      }
+    });
+    recentCharts.push(chart);
   });
 }
 
@@ -652,13 +796,10 @@ async function confirmSymbolOverride() {
     if (!res.ok || !json.success) throw new Error(json.error || '변경 실패');
     hideSymbolChangePopup();
     dailyCache.clear();
-    eventsCache.clear();
     lastRenderedChartKey = null;
-    lastRenderedEventsKey = null;
     loadSymbolsList();
     loadTableData(true);
     if (isTabActive('chart')) loadAllCharts();
-    if (isTabActive('events')) loadEvents(true);
   } catch (e) {
     showErrorPopup('항목 변경 실패', e.message);
   } finally {
@@ -672,13 +813,10 @@ async function restoreSymbolOverride(id) {
     const json = await res.json();
     if (!res.ok || !json.success) throw new Error(json.error || '복원 실패');
     dailyCache.clear();
-    eventsCache.clear();
     lastRenderedChartKey = null;
-    lastRenderedEventsKey = null;
     loadSymbolsList();
     loadTableData(true);
     if (isTabActive('chart')) loadAllCharts();
-    if (isTabActive('events')) loadEvents(true);
   } catch (e) {
     showErrorPopup('원래대로 복원 실패', e.message);
   }
@@ -703,95 +841,6 @@ function initSymbolChangePopup() {
       runSymbolSearch();
     }
   });
-}
-
-function setEventsTableHeader() {
-  document.getElementById('eventsTableHead').innerHTML = '<th>날짜</th><th>항목</th><th>변동</th><th>매도 시점 경고</th>';
-}
-
-async function loadEvents(forceRefresh = false) {
-  const year = currentYear;
-  const month = currentMonth;
-  const tbody = document.getElementById('eventsBody');
-  const key = makePeriodKey(year, month);
-  const cached = eventsCache.get(key);
-  const alreadyShowing = lastRenderedEventsKey === key && tbody.children.length > 0;
-
-  if (forceRefresh) {
-    eventsCache.delete(key);
-    setEventsTableHeader();
-    tbody.innerHTML = '<tr><td colspan="4" class="loading">업데이트 중...</td></tr>';
-  } else if (!alreadyShowing) {
-    if (cached) {
-      renderEvents(cached);
-    } else {
-      setEventsTableHeader();
-      tbody.innerHTML = '<tr><td colspan="4" class="loading">로딩 중...</td></tr>';
-    }
-  }
-
-  const token = `${key}-${Date.now()}`;
-  eventsRequestToken = token;
-
-  try {
-    const url = forceRefresh ? `${API}/events/${year}/${month}?refresh=1` : `${API}/events/${year}/${month}`;
-    const res = await fetch(url);
-    let json;
-    try {
-      json = await res.json();
-    } catch {
-      throw new Error(res.ok ? '응답 형식 오류' : `서버 오류 (${res.status})`);
-    }
-    if (!res.ok || json.success === false) {
-      showErrorPopup('이벤트 조회 실패', json?.error || '알 수 없는 오류', json?.cause);
-      if (!cached && !alreadyShowing) {
-        setEventsTableHeader();
-        tbody.innerHTML = '<tr><td colspan="4" class="empty">데이터를 불러올 수 없습니다.</td></tr>';
-      }
-      return;
-    }
-    if (json.failed && json.failed.length > 0) {
-      const list = json.failed.map(f => `${f.name}: ${f.reason}`).join('\n');
-      showErrorPopup('일부 데이터 누락', `${json.failed.length}개 항목을 불러오지 못했습니다.`, list);
-    }
-    const responseKey = makePeriodKey(json.year, json.month);
-    eventsCache.set(responseKey, json);
-    if (eventsRequestToken !== token || responseKey !== makePeriodKey(year, month)) return;
-    renderEvents(json, { force: true });
-  } catch (e) {
-    showErrorPopup('이벤트 조회 오류', e.message, e.message.includes('fetch') ? '서버 연결을 확인하세요.' : null);
-    if (!cached && !alreadyShowing) {
-      setEventsTableHeader();
-      tbody.innerHTML = '<tr><td colspan="4" class="empty">데이터를 불러올 수 없습니다.</td></tr>';
-    }
-  }
-}
-
-function renderEvents(json, { force = false } = {}) {
-  const tbody = document.getElementById('eventsBody');
-  const key = makePeriodKey(json.year, json.month);
-  if (!force && lastRenderedEventsKey === key && tbody.children.length > 0) return;
-  lastRenderedEventsKey = key;
-  const events = json.events || {};
-  const dates = Object.keys(events).sort();
-
-  if (dates.length === 0) {
-    setEventsTableHeader();
-    tbody.innerHTML = '<tr><td colspan="4" class="empty">해당 월에 가격 변동 3% 이상인 이벤트가 없습니다.</td></tr>';
-    return;
-  }
-
-  setEventsTableHeader();
-  tbody.innerHTML = dates.flatMap(date =>
-    events[date].map(ev => `
-      <tr>
-        <td>${escapeHtml(date)}</td>
-        <td>${escapeHtml(ev.item)}</td>
-        <td class="${ev.type === '상승' ? 'event-up' : 'event-down'}">${ev.type} ${ev.change >= 0 ? '+' : ''}${ev.change.toFixed(2)}%</td>
-        <td class="event-warning">${escapeHtml(ev.sellWarning || '-')}</td>
-      </tr>
-    `)
-  ).join('');
 }
 
 function init() {

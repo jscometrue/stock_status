@@ -21,8 +21,8 @@
 
   <nav class="tabs">
     <button class="tab active" data-tab="table">테이블</button>
-    <button class="tab" data-tab="chart">차트</button>
-    <button class="tab" data-tab="events">뉴스/이벤트</button>
+    <button class="tab" data-tab="chart">차트1 (월별)</button>
+    <button class="tab" data-tab="chart2">차트2 (최근 30일)</button>
     <button class="tab" data-tab="symbols">항목 관리</button>
   </nav>
 
@@ -43,7 +43,7 @@
       </div>
     </section>
 
-    <!-- 차트 탭 -->
+    <!-- 차트1 탭 (월별) -->
     <section id="tab-chart" class="tab-content">
       <div class="chart-controls">
         <span class="chart-hint">※ 상단 연도/월 선택 후 해당 월 기준 일별 추이를 표시합니다 (가로 4개)</span>
@@ -56,19 +56,17 @@
       <div id="chartsGrid" class="charts-grid"></div>
     </section>
 
-    <!-- 뉴스/이벤트 탭 -->
-    <section id="tab-events" class="tab-content">
-      <div class="events-header">
-        <span class="events-hint">※ 상단 연/월 선택 기준. 가격 변동 3% 이상인 날 표시</span>
+    <!-- 차트2 탭 (최근 30일) -->
+    <section id="tab-chart2" class="tab-content">
+      <div class="chart-controls">
+        <span class="chart-hint">※ 오늘 기준 최근 30일 일별 추이를 표시합니다 (가로 4개)</span>
       </div>
-      <div class="events-table-wrap">
-        <table class="events-table">
-          <thead>
-            <tr id="eventsTableHead"></tr>
-          </thead>
-          <tbody id="eventsBody"></tbody>
-        </table>
+      <div class="chart-color-legend">
+        <span class="legend-item"><span class="legend-dot" style="background:#58a6ff"></span> 파란색: 기본</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#f85149"></span> 빨간색: 2일 이상 연속 하락 또는 최근 30일 고점 대비 3% 이상 하락</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#d29922"></span> 노란색: 최근 30일 고점 대비 5% 이상 하락</span>
       </div>
+      <div id="chartsGridRecent" class="charts-grid"></div>
     </section>
 
     <!-- 항목 관리 탭 -->

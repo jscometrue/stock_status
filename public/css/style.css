@@ -39,13 +39,13 @@ header h1 {
   font-weight: 600;
 }
 
-.month-selector, .events-month-selector {
+.month-selector {
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
 
-.month-selector select, .events-month-selector select {
+.month-selector select {
   padding: 0.5rem 0.75rem;
   background: var(--bg);
   border: 1px solid var(--border);
@@ -313,51 +313,6 @@ main {
   .charts-grid {
     grid-template-columns: 1fr;
   }
-}
-
-.events-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-
-.events-hint {
-  font-size: 0.85rem;
-  color: var(--text-muted);
-}
-
-.events-table-wrap {
-  overflow-x: auto;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-card);
-}
-
-.events-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.events-table th, .events-table td {
-  padding: 0.7rem 1rem;
-  text-align: left;
-  border-bottom: 1px solid var(--border);
-}
-
-.events-table th {
-  font-weight: 600;
-  color: var(--text-muted);
-  background: var(--bg);
-}
-
-.events-table .event-up { color: var(--up); }
-.events-table .event-down { color: var(--down); }
-.events-table .event-warning {
-  font-size: 0.85rem;
-  max-width: 240px;
-  color: var(--text-muted);
 }
 
 .loading {
